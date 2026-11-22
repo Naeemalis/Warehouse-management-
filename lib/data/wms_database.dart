@@ -13,7 +13,7 @@ class WmsDatabase {
       p.join(root, 'naeemsoft_wms.db'),
       version: 1,
       onCreate: _createSchema,
-      onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
+      onConfigure: (db) async { await db.execute('PRAGMA foreign_keys = ON'); },
     );
     return _database!;
   }
@@ -126,13 +126,27 @@ class WmsDatabase {
       final lines = await txn.query('document_lines', where: 'document_id = ?', whereArgs: [documentId]);
       if (lines.isEmpty) throw StateError('Cannot approve an empty document');
       if (kind == 'issue') {
+        // Aggregate repeated product lines (e.g. carton + pack + piece)
+        // before validating; checking each line independently can overspend.
+        final requestedByProduct = <int, double>{};
+        final nameByProduct = <int, String>{};
         for (final line in lines) {
+          final productId = line['product_id'] as int;
+          requestedByProduct.update(
+            productId,
+            (current) => current + (line['base_quantity'] as num).toDouble(),
+            ifAbsent: () => (line['base_quantity'] as num).toDouble(),
+          );
+          nameByProduct[productId] = line['product_name_snapshot'] as String;
+        }
+        for (final entry in requestedByProduct.entries) {
           final rows = await txn.rawQuery('''SELECT COALESCE(SUM(CASE
             WHEN direction = 'IN' THEN quantity_base ELSE -quantity_base END), 0) AS balance
-            FROM stock_movements WHERE product_id = ?''', [line['product_id']]);
+            FROM stock_movements WHERE product_id = ?''', [entry.key]);
           final balance = (rows.first['balance'] as num).toDouble();
-          final requested = (line['base_quantity'] as num).toDouble();
-          if (requested > balance) throw StateError('Insufficient stock for ${line['product_name_snapshot']}');
+          if (entry.value > balance) {
+            throw StateError('Insufficient stock for ${nameByProduct[entry.key]}');
+          }
         }
       }
       final now = DateTime.now().toIso8601String();
