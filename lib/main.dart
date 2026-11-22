@@ -121,7 +121,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   };
 
   String get lang => widget.language;
-  String t(String key) => words[lang]?[key] ?? words['en']![key]!;
+  String t(String key) => words[lang]?[key] ?? words['en']![key]!;\n  String tr3(String ar, String en, String fr) => lang=='ar' ? ar : (lang=='fr' ? fr : en);
   bool get rtl => lang == 'ar';
 
   @override
@@ -335,9 +335,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ),
         if(receiving) ...[
           const SizedBox(height:10),
-          TextField(controller:factor,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'معامل التحويل إلى وحدة الأساس':'Conversion factor to base unit')),
+          TextField(controller:factor,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('معامل التحويل إلى وحدة الأساس','Conversion factor to base unit','Facteur de conversion vers l’unité de base'))),
           const SizedBox(height:8),
-          TextField(controller:packaging,decoration:InputDecoration(labelText:lang=='ar'?'تفاصيل التعبئة الفعلية':'Actual packaging details',hintText:lang=='ar'?'مثال: 4 بواكت × 6 حبات':'e.g. 4 packs × 6 pieces')),
+          TextField(controller:packaging,decoration:InputDecoration(labelText:tr3('تفاصيل التعبئة الفعلية','Actual packaging details','Détails réels de l’emballage'),hintText:tr3('مثال: 4 بواكت × 6 حبات','e.g. 4 packs × 6 pieces','ex. : 4 paquets × 6 pièces'))),
           const SizedBox(height:8),
           TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:t('price'))),
         ],
@@ -391,13 +391,13 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final purchase=TextEditingController(text:'${((product['purchase_price_minor'] as num?)??0)/100}');
     final issue=TextEditingController(text:'${((product['issue_price_minor'] as num?)??0)/100}');
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
-      title:Text(lang=='ar'?'تعديل المنتج':'Edit product'),
+      title:Text(tr3('تعديل المنتج','Edit product','Modifier le produit')),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
         TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
         const SizedBox(height:8),
-        TextField(controller:purchase,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'سعر الشراء':'Purchase price')),
+        TextField(controller:purchase,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('سعر الشراء','Purchase price','Prix d’achat'))),
         const SizedBox(height:8),
-        TextField(controller:issue,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'سعر الصرف':'Issue price')),
+        TextField(controller:issue,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('سعر الصرف','Issue price','Prix de sortie'))),
       ]),
       actions:[
         TextButton(onPressed:()=>Navigator.pop(ctx,false),child:Text(t('cancel'))),
@@ -423,7 +423,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.7,
           child:Column(children:[
-            Text(lang=='ar'?'إدارة الموردين والعملاء':'Manage suppliers and customers',
+            Text(tr3('إدارة الموردين والعملاء','Manage suppliers and customers','Gérer les fournisseurs et les clients'),
               style:Theme.of(ctx).textTheme.titleLarge),
             const SizedBox(height:12),
             SegmentedButton<String>(
@@ -439,7 +439,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               },
             ),
             const SizedBox(height:8),
-            Expanded(child:rows.isEmpty?Center(child:Text(lang=='ar'?'لا توجد بيانات':'No records')):ListView(
+            Expanded(child:rows.isEmpty?Center(child:Text(tr3('لا توجد بيانات','No records','Aucune donnée'))):ListView(
               children:rows.map((p)=>ListTile(
                 leading:const Icon(Icons.person_outline),
                 title:Text('${p['name']}'),
@@ -454,7 +454,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                   content:Column(mainAxisSize:MainAxisSize.min,children:[
                     TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
                     const SizedBox(height:8),
-                    TextField(controller:phone,decoration:InputDecoration(labelText:lang=='ar'?'الهاتف':'Phone')),
+                    TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
                   ]),
                   actions:[
                     TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
@@ -482,26 +482,26 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.65,
           child:Column(children:[
-            Text(lang=='ar'?'طلبات صرف معتمدة بانتظار التسليم':'Approved issues awaiting delivery',
+            Text(tr3('طلبات صرف معتمدة بانتظار التسليم','Approved issues awaiting delivery','Sorties approuvées en attente de livraison'),
               style:Theme.of(ctx).textTheme.titleLarge),
             const SizedBox(height:12),
             Expanded(child:docs.isEmpty
-              ?Center(child:Text(lang=='ar'?'لا توجد تسليمات معلقة':'No pending deliveries'))
+              ?Center(child:Text(tr3('لا توجد تسليمات معلقة','No pending deliveries','Aucune livraison en attente')))
               :ListView.builder(itemCount:docs.length,itemBuilder:(ctx,i){
                 final doc=docs[i];
                 return Card(child:ListTile(
                   title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
-                  subtitle:Text(lang=='ar'?'معتمد — لم يؤكد التسليم':'Approved — delivery not confirmed'),
+                  subtitle:Text(tr3('معتمد — لم يؤكد التسليم','Approved — delivery not confirmed','Approuvé — livraison non confirmée')),
                   trailing:FilledButton.tonal(
                     onPressed:() async {
                       final recipient=TextEditingController(text:'${doc['party_name_snapshot']}');
                       final note=TextEditingController();
                       final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
-                        title:Text(lang=='ar'?'تأكيد التسليم الفعلي':'Confirm physical delivery'),
+                        title:Text(tr3('تأكيد التسليم الفعلي','Confirm physical delivery','Confirmer la livraison physique')),
                         content:Column(mainAxisSize:MainAxisSize.min,children:[
-                          TextField(controller:recipient,decoration:InputDecoration(labelText:lang=='ar'?'اسم المستلم':'Recipient name')),
+                          TextField(controller:recipient,decoration:InputDecoration(labelText:tr3('اسم المستلم','Recipient name','Nom du destinataire'))),
                           const SizedBox(height:8),
-                          TextField(controller:note,decoration:InputDecoration(labelText:lang=='ar'?'ملاحظة / إثبات التوقيع':'Delivery note / signature record')),
+                          TextField(controller:note,decoration:InputDecoration(labelText:tr3('ملاحظة / إثبات التوقيع','Delivery note / signature record','Note de livraison / preuve de signature'))),
                         ]),
                         actions:[
                           TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
@@ -512,10 +512,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                           recipientName:recipient.text.trim(),signatureNote:note.text.trim());
                         await refresh();
                         if(ctx.mounted)Navigator.pop(ctx);
-                        message(lang=='ar'?'تم تسجيل التسليم':'Delivery recorded');
+                        message(tr3('تم تسجيل التسليم','Delivery recorded','Livraison enregistrée'));
                       }
                     },
-                    child:Text(lang=='ar'?'تأكيد التسليم':'Confirm delivery'),
+                    child:Text(tr3('تأكيد التسليم','Confirm delivery','Confirmer la livraison')),
                   ),
                 ));
               })),
