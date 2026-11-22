@@ -28,3 +28,5 @@ Authentication and real role-based authorization are not implemented; current de
 
 
 Latest development note: unit-conversion validation and automated tests are included in the current branch. Android build status must be checked in the Actions tab for the latest branch commit.
+
+CI dependency alignment: intl is pinned to the version required by the current Flutter localization SDK; the Android workflow generates platform files without resolving packages prematurely.
