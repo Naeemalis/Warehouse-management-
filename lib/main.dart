@@ -149,24 +149,31 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       appBar: AppBar(
         title: Text(t('title')),
         actions: [
-          IconButton(tooltip: tr3('الفواتير','Documents','Documents'), onPressed: () => showDocuments(), icon: const Icon(Icons.receipt_long_outlined)),
-          IconButton(tooltip: tr3('كشف حساب عميل','Customer statement','Relevé client'), onPressed: () => showCustomerAccounts(), icon: const Icon(Icons.account_balance_wallet_outlined)),
-          IconButton(tooltip: tr3('كشف المنصرف','Issue register','Registre des sorties'), onPressed: () => showDocuments(kind:'issue'), icon: const Icon(Icons.outbox_outlined)),
-          IconButton(tooltip: lang=='ar'?'الموردون والعملاء':'Suppliers and customers', onPressed: () => manageParties(), icon: const Icon(Icons.people_alt_outlined)),
-          IconButton(tooltip: lang=='ar'?'التسليمات':'Delivery', onPressed: () => showDeliveries(), icon: const Icon(Icons.local_shipping_outlined)),
-          IconButton(tooltip: t('approvals'), onPressed: () => showApprovals(), icon: Badge(
-            label: Text('${pending.length}'), isLabelVisible: pending.isNotEmpty,
-            child: const Icon(Icons.fact_check_outlined))),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.language),
-            onSelected: widget.onLanguage,
-            itemBuilder: (_) => const [
-              PopupMenuItem(value:'ar', child:Text('العربية')),
-              PopupMenuItem(value:'en', child:Text('English')),
-              PopupMenuItem(value:'fr', child:Text('Français')),
+            icon: const Icon(Icons.menu),
+            onSelected: (v) {
+              if(v=='docs') showDocuments();
+              else if(v=='statement') showCustomerAccounts();
+              else if(v=='issues') showDocuments(kind:'issue');
+              else if(v=='parties') manageParties();
+              else if(v=='deliveries') showDeliveries();
+              else if(v=='approvals') showApprovals();
+              else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value:'docs',child:Text(tr3('الفواتير','Invoices','Factures'))),
+              PopupMenuItem(value:'statement',child:Text(tr3('كشف حساب عميل والدفعات','Customer statement & payments','Relevé client et paiements'))),
+              PopupMenuItem(value:'issues',child:Text(tr3('سجل المنصرف','Issue register','Registre des sorties'))),
+              PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
+              PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
+              PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value:'ar',child:Text('العربية')),
+              const PopupMenuItem(value:'en',child:Text('English')),
+              const PopupMenuItem(value:'fr',child:Text('Français')),
             ],
           ),
-        ],
+        ],,
       ),
       body: RefreshIndicator(
         onRefresh: refresh,
