@@ -468,7 +468,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 subtitle:Text('${p['phone']??''}'),
                 trailing:PopupMenuButton<String>(
                   onSelected:(action) async {
-                    if(action=='edit') await editParty(kind,p);
+                    if(action=='edit'){await editParty(kind,p);final refreshed=await db.listParties(kind);setSheet(()=>rows=refreshed);}
                     if(action=='archive'){
                       final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                         title:Text(tr3('إيقاف هذا السجل؟','Archive this record?','Archiver cet enregistrement ?')),
