@@ -196,6 +196,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                       return Card(child: InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () => openTransaction(false, selectedProduct: p),
+                        onLongPress: () => editProduct(p),
                         child: Padding(padding: const EdgeInsets.all(12), child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
