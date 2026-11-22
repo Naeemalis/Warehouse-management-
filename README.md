@@ -25,3 +25,6 @@ GitHub Actions workflow at .github/workflows/android.yml generates Android platf
 
 ## Not production-ready yet
 Authentication and real role-based authorization are not implemented; current development UI uses a temporary demo actor identifier. Full delivery evidence/signature capture, product archive and full unit editing, opening balances, inventory counts, transfers, returns, complete reports, PDF/thermal printing, backups/restores, database migration tests, and physical Android device testing remain outstanding. Do not use this branch to control live stock until these are implemented and verified.
+
+
+Latest development note: unit-conversion validation and automated tests are included in the current branch. Android build status must be checked in the Actions tab for the latest branch commit.
