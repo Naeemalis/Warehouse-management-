@@ -309,7 +309,30 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
           onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; factor.text='${u['factor_to_base']}'; }); }),
         const SizedBox(height:10),
-        TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:t('quantity'))),
+        TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
+        const SizedBox(height:8),
+        GridView.count(
+          crossAxisCount:3,
+          shrinkWrap:true,
+          mainAxisSpacing:5,
+          crossAxisSpacing:5,
+          childAspectRatio:2.5,
+          physics:const NeverScrollableScrollPhysics(),
+          children:['1','2','3','4','5','6','7','8','9','.','0','⌫'].map((key)=>OutlinedButton(
+            onPressed:(){
+              setLocal((){
+                if(key=='⌫'){
+                  if(quantity.text.isNotEmpty) quantity.text=quantity.text.substring(0,quantity.text.length-1);
+                } else if(key=='.'){
+                  if(!quantity.text.contains('.') && !quantity.text.contains(',')) quantity.text += '.';
+                } else {
+                  quantity.text += key;
+                }
+              });
+            },
+            child:Text(key,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w600)),
+          )).toList(),
+        ),
         if(receiving) ...[
           const SizedBox(height:10),
           TextField(controller:factor,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'معامل التحويل إلى وحدة الأساس':'Conversion factor to base unit')),
