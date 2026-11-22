@@ -184,3 +184,160 @@ class WmsDatabase {
     });
   }
 }
+
+
+extension WmsCatalogOperations on WmsDatabase {
+  Future<List<Map<String, Object?>>> listProducts() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT p.*,
+        COALESCE((SELECT SUM(CASE WHEN m.direction='IN' THEN m.quantity_base ELSE -m.quantity_base END)
+          FROM stock_movements m WHERE m.product_id=p.id),0) AS stock_base
+      FROM products p WHERE p.is_active=1 ORDER BY p.name COLLATE NOCASE
+    ''');
+  }
+
+  Future<List<Map<String, Object?>>> listUnits(int productId) async {
+    final db = await database;
+    return db.query('product_units', where: 'product_id=? AND is_active=1',
+      whereArgs: [productId], orderBy: 'sort_order, id');
+  }
+
+  Future<int> saveProduct({
+    required String name,
+    required String baseUnit,
+    required String trackingMode,
+    required List<Map<String, Object?>> units,
+    String? code,
+    String? category,
+  }) async {
+    if (name.trim().isEmpty || baseUnit.trim().isEmpty) {
+      throw ArgumentError('Product name and base unit are required');
+    }
+    if (units.isEmpty || !units.any((u) => u['unit_name'] == baseUnit)) {
+      throw ArgumentError('A base unit with factor 1 is required');
+    }
+    final db = await database;
+    return db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+      final id = await txn.insert('products', {
+        'name': name.trim(), 'code': code?.trim().isEmpty == true ? null : code?.trim(),
+        'category': category, 'base_unit_name': baseUnit,
+        'tracking_mode': trackingMode, 'created_at': now, 'updated_at': now,
+      });
+      for (var i = 0; i < units.length; i++) {
+        final u = units[i];
+        final factor = (u['factor_to_base'] as num).toDouble();
+        if (factor <= 0) throw ArgumentError('Unit conversion must be positive');
+        await txn.insert('product_units', {
+          'product_id': id, 'unit_name': u['unit_name'],
+          'factor_to_base': factor, 'sort_order': i, 'created_at': now,
+        });
+      }
+      return id;
+    });
+  }
+
+  Future<List<Map<String, Object?>>> listParties(String table) async {
+    if (table != 'suppliers' && table != 'customers') {
+      throw ArgumentError('Unsupported party table');
+    }
+    final db = await database;
+    return db.query(table, where: 'is_active=1', orderBy: 'name COLLATE NOCASE');
+  }
+
+  Future<int> saveParty({required bool supplier, required String name, String? phone}) async {
+    if (name.trim().isEmpty) throw ArgumentError('Name is required');
+    final db = await database;
+    return db.insert(supplier ? 'suppliers' : 'customers', {
+      'name': name.trim(), 'phone': phone,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<int> createDocument({
+    required String kind,
+    required String partyType,
+    required int partyId,
+    required String partyName,
+    required int createdBy,
+    required List<Map<String, Object?>> lines,
+  }) async {
+    if (kind != 'receipt' && kind != 'issue') throw ArgumentError('Unsupported document kind');
+    if (lines.isEmpty) throw ArgumentError('Document must contain at least one line');
+    final db = await database;
+    return db.transaction((txn) async {
+      final now = DateTime.now().toIso8601String();
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      final docId = await txn.insert('documents', {
+        'document_no': '${kind == 'receipt' ? 'RCV' : 'ISS'}-$stamp',
+        'kind': kind, 'status': 'draft', 'party_type': partyType,
+        'party_id': partyId, 'party_name_snapshot': partyName,
+        'created_by': createdBy, 'created_at': now,
+      });
+      for (final line in lines) {
+        final productId = line['product_id'] as int;
+        final productRows = await txn.query('products', where: 'id=?', whereArgs: [productId], limit: 1);
+        if (productRows.isEmpty) throw StateError('Product not found');
+        final qty = (line['quantity'] as num).toDouble();
+        final factor = (line['factor_to_base'] as num).toDouble();
+        if (qty <= 0 || factor <= 0) throw ArgumentError('Quantity and unit factor must be positive');
+        await txn.insert('document_lines', {
+          'document_id': docId, 'product_id': productId,
+          'product_name_snapshot': productRows.first['name'],
+          'unit_name_snapshot': line['unit_name'],
+          'entered_quantity': qty, 'factor_to_base_snapshot': factor,
+          'base_quantity': qty * factor,
+          'unit_price_minor': line['unit_price_minor'] ?? 0,
+          'packaging_note': line['packaging_note'],
+          'created_at': now,
+        });
+      }
+      return docId;
+    });
+  }
+
+  Future<void> submitDocument({required int documentId, required int userId}) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query('documents', where: 'id=?', whereArgs: [documentId], limit: 1);
+      if (rows.isEmpty || rows.first['status'] != 'draft') {
+        throw StateError('Only a draft document can be submitted');
+      }
+      final count = Sqflite.firstIntValue(await txn.rawQuery(
+        'SELECT COUNT(*) FROM document_lines WHERE document_id=?', [documentId])) ?? 0;
+      if (count == 0) throw StateError('Empty documents cannot be submitted');
+      final now = DateTime.now().toIso8601String();
+      await txn.update('documents', {'status':'pending_approval','submitted_at':now},
+        where:'id=?', whereArgs:[documentId]);
+      await txn.insert('approval_history', {
+        'document_id':documentId, 'action':'submitted', 'actor_id':userId,
+        'actor_name_snapshot':'User #$userId', 'created_at':now,
+      });
+    });
+  }
+
+  Future<List<Map<String, Object?>>> pendingDocuments() async {
+    final db = await database;
+    return db.query('documents', where:"status='pending_approval'",
+      orderBy:'submitted_at ASC');
+  }
+
+  Future<void> rejectDocument({required int documentId, required int userId, required String reason}) async {
+    if (reason.trim().isEmpty) throw ArgumentError('Rejection reason is required');
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query('documents', where:'id=?', whereArgs:[documentId], limit:1);
+      if (rows.isEmpty || rows.first['status'] != 'pending_approval') {
+        throw StateError('Only pending documents can be rejected');
+      }
+      final now = DateTime.now().toIso8601String();
+      await txn.update('documents', {'status':'rejected','rejection_reason':reason.trim()},
+        where:'id=?', whereArgs:[documentId]);
+      await txn.insert('approval_history', {
+        'document_id':documentId, 'action':'rejected', 'actor_id':userId,
+        'actor_name_snapshot':'User #$userId', 'notes':reason.trim(), 'created_at':now,
+      });
+    });
+  }
+}
