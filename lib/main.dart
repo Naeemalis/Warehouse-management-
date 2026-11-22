@@ -285,6 +285,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController(text:'1');
     final price=TextEditingController(text:'0');
+    final factor=TextEditingController(text: units.isEmpty ? '1' : '${units.first['factor_to_base']}');
+    final packaging=TextEditingController();
     final basket=<Map<String,Object?>>[];
     await showDialog<void>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,setLocal)=>AlertDialog(
       title:Text(receiving?t('receive'):t('issue')),
@@ -297,16 +299,20 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:productId,decoration:InputDecoration(labelText:t('product')),
           items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; }); }),
+          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; factor.text=u.isEmpty?'1':'${u.first['factor_to_base']}'; }); }),
         const SizedBox(height:10),
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v)=>setLocal(()=>unitId=v)),
+          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; factor.text='${u['factor_to_base']}'; }); }),
         const SizedBox(height:10),
         TextField(controller:quantity,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:t('quantity'))),
         if(receiving) ...[
           const SizedBox(height:10),
+          TextField(controller:factor,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'معامل التحويل إلى وحدة الأساس':'Conversion factor to base unit')),
+          const SizedBox(height:8),
+          TextField(controller:packaging,decoration:InputDecoration(labelText:lang=='ar'?'تفاصيل التعبئة الفعلية':'Actual packaging details',hintText:lang=='ar'?'مثال: 4 بواكت × 6 حبات':'e.g. 4 packs × 6 pieces')),
+          const SizedBox(height:8),
           TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:t('price'))),
         ],
         const SizedBox(height:12),
@@ -318,7 +324,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           if(q<=0)return;
           basket.add({
             'product_id':productId,'product_name':product['name'],
-            'unit_name':unit['unit_name'],'factor_to_base':unit['factor_to_base'],
+            'unit_name':unit['unit_name'],'factor_to_base':receiving?(double.tryParse(factor.text.replaceAll(',','.'))??0):unit['factor_to_base'],
+            'packaging_note':receiving?packaging.text:null,
             'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
           });
           quantity.text='1'; setLocal((){});
