@@ -1,3 +1,4 @@
+import '../domain/unit_conversion.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -214,9 +215,7 @@ extension WmsCatalogOperations on WmsDatabase {
     if (name.trim().isEmpty || baseUnit.trim().isEmpty) {
       throw ArgumentError('Product name and base unit are required');
     }
-    if (units.isEmpty || !units.any((u) => u['unit_name'] == baseUnit)) {
-      throw ArgumentError('A base unit with factor 1 is required');
-    }
+    validateUnitDefinitions(units, baseUnit);
     final db = await database;
     return db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
@@ -287,7 +286,7 @@ extension WmsCatalogOperations on WmsDatabase {
           'product_name_snapshot': productRows.first['name'],
           'unit_name_snapshot': line['unit_name'],
           'entered_quantity': qty, 'factor_to_base_snapshot': factor,
-          'base_quantity': qty * factor,
+          'base_quantity': convertToBaseQuantity(enteredQuantity: qty, factorToBase: factor),
           'unit_price_minor': line['unit_price_minor'] ?? 0,
           'packaging_note': line['packaging_note'],
           'created_at': now,
