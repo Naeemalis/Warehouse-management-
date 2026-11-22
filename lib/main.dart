@@ -173,7 +173,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               const PopupMenuItem(value:'fr',child:Text('Français')),
             ],
           ),
-        ],,
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: refresh,
