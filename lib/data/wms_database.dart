@@ -12,8 +12,22 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 1,
+      version: 2,
       onCreate: _createSchema,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''CREATE TABLE customer_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+            amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+            payment_date TEXT NOT NULL,
+            payment_method TEXT NOT NULL DEFAULT 'cash',
+            reference_no TEXT, notes TEXT,
+            created_by INTEGER, created_at TEXT NOT NULL
+          )''');
+          await db.execute('CREATE INDEX idx_customer_payments_customer_date ON customer_payments(customer_id, payment_date)');
+        }
+      },
       onConfigure: (db) async { await db.execute('PRAGMA foreign_keys = ON'); },
     );
     return _database!;
@@ -98,6 +112,16 @@ class WmsDatabase {
       entity_id INTEGER NOT NULL, action TEXT NOT NULL, actor_id INTEGER,
       details TEXT, created_at TEXT NOT NULL
     )''');
+    await db.execute('''CREATE TABLE customer_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+      amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+      payment_date TEXT NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'cash',
+      reference_no TEXT, notes TEXT,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    await db.execute('CREATE INDEX idx_customer_payments_customer_date ON customer_payments(customer_id, payment_date)');
     await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
     await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
@@ -375,6 +399,140 @@ extension WmsProductMaintenance on WmsDatabase {
         'details':'Product name or prices changed',
         'created_at':now,
       });
+    });
+  }
+}
+
+
+extension WmsFinanceAndHistory on WmsDatabase {
+  Future<List<Map<String, Object?>>> listDocuments({String? kind, int? partyId}) async {
+    final db = await database;
+    final clauses = <String>[];
+    final args = <Object?>[];
+    if (kind != null) { clauses.add('d.kind=?'); args.add(kind); }
+    if (partyId != null) { clauses.add('d.party_id=?'); args.add(partyId); }
+    return db.rawQuery('''
+      SELECT d.*,
+        COALESCE((SELECT SUM(l.entered_quantity*l.unit_price_minor)
+          FROM document_lines l WHERE l.document_id=d.id),0) AS total_minor,
+        (SELECT COUNT(*) FROM document_lines l WHERE l.document_id=d.id) AS line_count
+      FROM documents d
+      ${clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}'}
+      ORDER BY d.created_at DESC
+    ''', args);
+  }
+
+  Future<Map<String, Object?>> documentDetails(int documentId) async {
+    final db = await database;
+    final docs = await db.rawQuery('''
+      SELECT d.*, COALESCE((SELECT SUM(l.entered_quantity*l.unit_price_minor)
+      FROM document_lines l WHERE l.document_id=d.id),0) AS total_minor
+      FROM documents d WHERE d.id=?
+    ''', [documentId]);
+    if (docs.isEmpty) throw StateError('Document not found');
+    final lines = await db.query('document_lines', where:'document_id=?',
+      whereArgs:[documentId], orderBy:'id');
+    return {'document':docs.first, 'lines':lines};
+  }
+
+  Future<void> addCustomerPayment({
+    required int customerId, required int amountMinor,
+    required String paymentDate, String method='cash',
+    String? referenceNo, String? notes, int userId=1,
+  }) async {
+    if (amountMinor <= 0) throw ArgumentError('Payment must be positive');
+    final db = await database;
+    await db.transaction((txn) async {
+      final customer = await txn.query('customers', where:'id=?', whereArgs:[customerId], limit:1);
+      if (customer.isEmpty) throw StateError('Customer not found');
+      final now = DateTime.now().toIso8601String();
+      final id = await txn.insert('customer_payments', {
+        'customer_id':customerId, 'amount_minor':amountMinor,
+        'payment_date':paymentDate, 'payment_method':method,
+        'reference_no':referenceNo, 'notes':notes,
+        'created_by':userId, 'created_at':now,
+      });
+      await txn.insert('audit_log', {
+        'entity_type':'customer_payment','entity_id':id,'action':'created',
+        'actor_id':userId,'details':'Customer payment recorded',
+        'created_at':now,
+      });
+    });
+  }
+
+  Future<Map<String, Object?>> customerStatement(int customerId) async {
+    final db = await database;
+    final customerRows = await db.query('customers', where:'id=?', whereArgs:[customerId], limit:1);
+    if (customerRows.isEmpty) throw StateError('Customer not found');
+    final docs = await db.rawQuery('''
+      SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
+        d.party_name_snapshot,
+        COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) AS debit_minor,
+        0 AS credit_minor, 'issue' AS entry_type
+      FROM documents d JOIN document_lines l ON l.document_id=d.id
+      WHERE d.kind='issue' AND d.status='approved' AND d.party_type='customer' AND d.party_id=?
+      GROUP BY d.id
+    ''', [customerId]);
+    final payments = await db.rawQuery('''
+      SELECT id, 'PAY-'||id AS document_no, payment_date AS entry_date,
+        'recorded' AS status, '' AS party_name_snapshot,
+        0 AS debit_minor, amount_minor AS credit_minor,
+        'payment' AS entry_type, payment_method, reference_no, notes
+      FROM customer_payments WHERE customer_id=?
+    ''', [customerId]);
+    final entries = [...docs, ...payments]
+      ..sort((a,b) => '${a['entry_date']}'.compareTo('${b['entry_date']}'));
+    var balance = 0;
+    final ledger = <Map<String,Object?>>[];
+    for (final entry in entries) {
+      balance += (entry['debit_minor'] as num).round();
+      balance -= (entry['credit_minor'] as num).round();
+      ledger.add({...entry, 'balance_minor':balance});
+    }
+    return {
+      'customer':customerRows.first,
+      'entries':ledger,
+      'total_debit_minor':docs.fold<int>(0,(s,e)=>s+(e['debit_minor'] as num).round()),
+      'total_paid_minor':payments.fold<int>(0,(s,e)=>s+(e['credit_minor'] as num).round()),
+      'balance_minor':balance,
+    };
+  }
+
+  Future<void> updateParty({
+    required String table, required int id, required String name, String? phone,
+  }) async {
+    if (table!='customers' && table!='suppliers') throw ArgumentError('Unsupported party table');
+    if (name.trim().isEmpty) throw ArgumentError('Name is required');
+    final db=await database;
+    await db.transaction((txn) async {
+      final rows=await txn.query(table,where:'id=?',whereArgs:[id],limit:1);
+      if(rows.isEmpty) throw StateError('Record not found');
+      await txn.update(table,{'name':name.trim(),'phone':phone?.trim()},
+        where:'id=?',whereArgs:[id]);
+      await txn.insert('audit_log',{
+        'entity_type':table.substring(0,table.length-1),'entity_id':id,
+        'action':'updated','actor_id':1,'details':'Name or phone updated',
+        'created_at':DateTime.now().toIso8601String(),
+      });
+    });
+  }
+
+  Future<void> archiveParty({required String table, required int id}) async {
+    if (table!='customers' && table!='suppliers') throw ArgumentError('Unsupported party table');
+    final db=await database;
+    await db.update(table,{'is_active':0},where:'id=?',whereArgs:[id]);
+  }
+
+  Future<void> archiveProduct(int productId) async {
+    final db=await database;
+    await db.transaction((txn) async {
+      final rows=await txn.query('products',where:'id=?',whereArgs:[productId],limit:1);
+      if(rows.isEmpty) throw StateError('Product not found');
+      final linked=Sqflite.firstIntValue(await txn.rawQuery(
+        'SELECT COUNT(*) FROM document_lines WHERE product_id=?',[productId]))??0;
+      if(linked>0) throw StateError('Product has document history; archive it instead of deleting');
+      await txn.update('products',{'is_active':0,'updated_at':DateTime.now().toIso8601String()},
+        where:'id=?',whereArgs:[productId]);
     });
   }
 }
