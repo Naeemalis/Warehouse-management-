@@ -147,7 +147,13 @@ class StockWorkflows {
         if (returned + requested > received + 0.0000001) {
           throw StateError('Supplier return exceeds the remaining received quantity');
         }
-        final batch = (await txn.query('stock_batches', where: 'id=?', whereArgs: [line['batch_id']])).first;
+        final batchRows = await txn.query('stock_batches', where: 'id=?', whereArgs: [line['batch_id']]);
+        if (batchRows.isEmpty) throw StateError('Original supply batch not found');
+        final batch = batchRows.first;
+        if (batch['receiving_line_id'] != line['receiving_line_id'] ||
+            batch['product_id'] != line['product_id']) {
+          throw StateError('Return must reference the batch created by its original receiving line');
+        }
         final remaining = (batch['remaining_base_quantity'] as num).toDouble();
         if (requested > remaining + 0.0000001) throw StateError('Insufficient stock in original batch');
         await txn.update('stock_batches', {'remaining_base_quantity': remaining - requested},
@@ -221,7 +227,7 @@ class StockWorkflows {
           }
         } else {
           final batchId = await txn.insert('stock_batches', {
-            'receiving_line_id': await _syntheticReceivingLine(txn, line['product_id'] as int, difference),
+            'receiving_line_id': null,
             'product_id': line['product_id'], 'received_base_quantity': difference,
             'remaining_base_quantity': difference, 'unit_cost_minor': 0,
             'received_at': DateTime.now().toIso8601String(),
@@ -237,23 +243,6 @@ class StockWorkflows {
         'closed_at': DateTime.now().toIso8601String(),
       }, where: 'id=?', whereArgs: [countId]);
       await _audit(txn, 'APPROVE_AND_UNFREEZE', 'inventory_count', countId, userId: userId);
-    });
-  }
-
-  Future<int> _syntheticReceivingLine(Transaction txn, int productId, double qty) async {
-    final unit = await txn.query('products', columns: ['base_unit_id'], where: 'id=?', whereArgs: [productId]);
-    if (unit.isEmpty) throw StateError('Product not found');
-    final supplier = await txn.rawQuery("SELECT id FROM suppliers ORDER BY id LIMIT 1");
-    if (supplier.isEmpty) throw StateError('Create a system supplier before posting count gains');
-    final docId = await txn.insert('receiving_documents', {
-      'document_no': 'COUNT-GAIN-${DateTime.now().microsecondsSinceEpoch}',
-      'supplier_id': supplier.first['id'], 'document_date': DateTime.now().toIso8601String(),
-      'status': 'approved',
-    });
-    return txn.insert('receiving_lines', {
-      'receiving_id': docId, 'product_id': productId, 'entered_unit_id': unit.first['base_unit_id'],
-      'entered_quantity': qty, 'factor_to_base': 1, 'received_base_quantity': qty,
-      'unit_cost_minor': 0, 'line_total_minor': 0,
     });
   }
 
