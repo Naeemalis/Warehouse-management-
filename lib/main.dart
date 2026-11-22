@@ -198,21 +198,38 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                     itemCount: products.length,
                     itemBuilder: (context,index) {
                       final p = products[index];
-                      return Card(child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => openTransaction(false, selectedProduct: p),
-                        onLongPress: () => editProduct(p),
-                        child: Padding(padding: const EdgeInsets.all(12), child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.inventory_2_outlined),
-                            const Spacer(),
-                            Text('${p['name']}', maxLines:2, overflow:TextOverflow.ellipsis, style: const TextStyle(fontWeight:FontWeight.w600)),
-                            const SizedBox(height:4),
-                            Text('${p['stock_base']} ${p['base_unit_name']}', style:Theme.of(context).textTheme.bodySmall),
+                      return Card(child: Stack(children:[
+                        Positioned.fill(child:InkWell(
+                          borderRadius:BorderRadius.circular(12),
+                          onTap:()=>openTransaction(false,selectedProduct:p),
+                          onLongPress:()=>editProduct(p),
+                          child:Padding(padding:const EdgeInsets.all(12),child:Column(
+                            crossAxisAlignment:CrossAxisAlignment.start,children:[
+                              const Icon(Icons.inventory_2_outlined),const Spacer(),
+                              Text('${p['name']}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w600)),
+                              const SizedBox(height:4),
+                              Text('${p['stock_base']} ${p['base_unit_name']}',style:Theme.of(context).textTheme.bodySmall),
+                            ],
+                          )),
+                        )),
+                        PositionedDirectional(top:0,end:0,child:PopupMenuButton<String>(
+                          icon:const Icon(Icons.more_vert,size:19),
+                          onSelected:(v) async {
+                            if(v=='edit'){await editProduct(p);}
+                            if(v=='archive'){
+                              final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
+                                title:Text(tr3('حذف الصنف من القائمة؟','Remove product?','Retirer le produit ?')),
+                                content:Text(tr3('سيتم إخفاؤه من الأصناف النشطة مع الاحتفاظ بسجل الفواتير وحركات المخزون.','It will be hidden from active products while invoice and stock history are preserved.','Il sera masqué des produits actifs, en conservant l’historique.')),
+                                actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('confirm')))]));
+                              if(ok==true){await db.archiveProduct(p['id'] as int);await refresh();}
+                            }
+                          },
+                          itemBuilder:(_)=>[
+                            PopupMenuItem(value:'edit',child:Text(tr3('تعديل الصنف','Edit product','Modifier le produit'))),
+                            PopupMenuItem(value:'archive',child:Text(tr3('حذف / أرشفة','Archive product','Archiver le produit'))),
                           ],
                         )),
-                      ));
+                      ]));
                     },
                   )),
             ]),
