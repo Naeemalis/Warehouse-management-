@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS issue_lines (
 -- A batch is created only when its receiving document is approved.
 CREATE TABLE IF NOT EXISTS stock_batches (
   id INTEGER PRIMARY KEY,
-  receiving_line_id INTEGER NOT NULL UNIQUE REFERENCES receiving_lines(id) ON DELETE RESTRICT,
+  receiving_line_id INTEGER UNIQUE REFERENCES receiving_lines(id) ON DELETE RESTRICT,
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
   received_base_quantity REAL NOT NULL CHECK (received_base_quantity > 0),
   remaining_base_quantity REAL NOT NULL CHECK (remaining_base_quantity >= 0),
@@ -247,7 +247,7 @@ CREATE INDEX IF NOT EXISTS ix_count_status ON inventory_counts(status);
 -- Prevent ledger writes while an inventory count is active.
 CREATE TRIGGER IF NOT EXISTS trg_block_movements_during_active_count
 BEFORE INSERT ON stock_movements
-WHEN EXISTS (SELECT 1 FROM inventory_counts WHERE status = 'active')
+WHEN EXISTS (SELECT 1 FROM inventory_counts WHERE status = 'active') AND NEW.source_type <> 'inventory_count'
 BEGIN
   SELECT RAISE(ABORT, 'Inventory is frozen while a count is active');
 END;
