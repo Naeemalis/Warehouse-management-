@@ -350,3 +350,32 @@ extension WmsDeliveryOperations on WmsDatabase {
       orderBy: 'approved_at ASC');
   }
 }
+
+extension WmsProductMaintenance on WmsDatabase {
+  Future<void> updateProduct({
+    required int productId,
+    required String name,
+    required int purchasePriceMinor,
+    required int issuePriceMinor,
+  }) async {
+    if (name.trim().isEmpty) throw ArgumentError('Product name is required');
+    final db = await database;
+    await db.transaction((txn) async {
+      final before = await txn.query('products', where:'id=?', whereArgs:[productId], limit:1);
+      if (before.isEmpty) throw StateError('Product not found');
+      final now = DateTime.now().toIso8601String();
+      await txn.update('products', {
+        'name':name.trim(),
+        'purchase_price_minor':purchasePriceMinor,
+        'issue_price_minor':issuePriceMinor,
+        'updated_at':now,
+      }, where:'id=?', whereArgs:[productId]);
+      await txn.insert('audit_log', {
+        'entity_type':'product','entity_id':productId,'action':'updated',
+        'actor_id':1,
+        'details':'Product name or prices changed',
+        'created_at':now,
+      });
+    });
+  }
+}
