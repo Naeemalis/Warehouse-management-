@@ -341,3 +341,12 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 }
+
+extension WmsDeliveryOperations on WmsDatabase {
+  Future<List<Map<String, Object?>>> awaitingDeliveryDocuments() async {
+    final db = await database;
+    return db.query('documents',
+      where: "kind='issue' AND status='approved' AND delivery_status='awaiting_delivery'",
+      orderBy: 'approved_at ASC');
+  }
+}
