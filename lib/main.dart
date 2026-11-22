@@ -362,6 +362,146 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     )));
   }
 
+
+  Future<void> editProduct(Map<String,Object?> product) async {
+    final name=TextEditingController(text:'${product['name']}');
+    final purchase=TextEditingController(text:'${((product['purchase_price_minor'] as num?)??0)/100}');
+    final issue=TextEditingController(text:'${((product['issue_price_minor'] as num?)??0)/100}');
+    final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
+      title:Text(lang=='ar'?'تعديل المنتج':'Edit product'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+        const SizedBox(height:8),
+        TextField(controller:purchase,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'سعر الشراء':'Purchase price')),
+        const SizedBox(height:8),
+        TextField(controller:issue,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:lang=='ar'?'سعر الصرف':'Issue price')),
+      ]),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx,false),child:Text(t('cancel'))),
+        FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:Text(t('save'))),
+      ]));
+    if(ok==true){
+      try{
+        await db.updateProduct(productId:product['id'] as int,name:name.text,
+          purchasePriceMinor:((double.tryParse(purchase.text)??0)*100).round(),
+          issuePriceMinor:((double.tryParse(issue.text)??0)*100).round());
+        await refresh();
+      }catch(e){message(e.toString());}
+    }
+  }
+
+  Future<void> manageParties() async {
+    String kind='suppliers';
+    List<Map<String,Object?>> rows=await db.listParties(kind);
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
+        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.7,
+          child:Column(children:[
+            Text(lang=='ar'?'إدارة الموردين والعملاء':'Manage suppliers and customers',
+              style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:12),
+            SegmentedButton<String>(
+              segments:[
+                ButtonSegment(value:'suppliers',label:Text(t('supplier'))),
+                ButtonSegment(value:'customers',label:Text(t('customer'))),
+              ],
+              selected:{kind},
+              onSelectionChanged:(v) async {
+                final k=v.first;
+                final r=await db.listParties(k);
+                setSheet(() { kind=k; rows=r; });
+              },
+            ),
+            const SizedBox(height:8),
+            Expanded(child:rows.isEmpty?Center(child:Text(lang=='ar'?'لا توجد بيانات':'No records')):ListView(
+              children:rows.map((p)=>ListTile(
+                leading:const Icon(Icons.person_outline),
+                title:Text('${p['name']}'),
+                subtitle:Text('${p['phone']??''}'),
+              )).toList())),
+            FilledButton.icon(
+              onPressed:() async {
+                final name=TextEditingController();
+                final phone=TextEditingController();
+                final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
+                  title:Text(kind=='suppliers'?t('supplier'):t('customer')),
+                  content:Column(mainAxisSize:MainAxisSize.min,children:[
+                    TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+                    const SizedBox(height:8),
+                    TextField(controller:phone,decoration:InputDecoration(labelText:lang=='ar'?'الهاتف':'Phone')),
+                  ]),
+                  actions:[
+                    TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
+                    FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save'))),
+                  ]));
+                if(ok==true&&name.text.trim().isNotEmpty){
+                  await db.saveParty(supplier:kind=='suppliers',name:name.text,phone:phone.text);
+                  final r=await db.listParties(kind);
+                  setSheet(() { rows=r; });
+                }
+              },
+              icon:const Icon(Icons.add),label:Text(lang=='ar'?'إضافة':'Add')),
+          ]),
+        ))),
+      )),
+    );
+  }
+
+  Future<void> showDeliveries() async {
+    final docs=await db.awaitingDeliveryDocuments();
+    if(!mounted)return;
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.65,
+          child:Column(children:[
+            Text(lang=='ar'?'طلبات صرف معتمدة بانتظار التسليم':'Approved issues awaiting delivery',
+              style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:12),
+            Expanded(child:docs.isEmpty
+              ?Center(child:Text(lang=='ar'?'لا توجد تسليمات معلقة':'No pending deliveries'))
+              :ListView.builder(itemCount:docs.length,itemBuilder:(ctx,i){
+                final doc=docs[i];
+                return Card(child:ListTile(
+                  title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
+                  subtitle:Text(lang=='ar'?'معتمد — لم يؤكد التسليم':'Approved — delivery not confirmed'),
+                  trailing:FilledButton.tonal(
+                    onPressed:() async {
+                      final recipient=TextEditingController(text:'${doc['party_name_snapshot']}');
+                      final note=TextEditingController();
+                      final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
+                        title:Text(lang=='ar'?'تأكيد التسليم الفعلي':'Confirm physical delivery'),
+                        content:Column(mainAxisSize:MainAxisSize.min,children:[
+                          TextField(controller:recipient,decoration:InputDecoration(labelText:lang=='ar'?'اسم المستلم':'Recipient name')),
+                          const SizedBox(height:8),
+                          TextField(controller:note,decoration:InputDecoration(labelText:lang=='ar'?'ملاحظة / إثبات التوقيع':'Delivery note / signature record')),
+                        ]),
+                        actions:[
+                          TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
+                          FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('confirm'))),
+                        ]));
+                      if(ok==true&&recipient.text.trim().isNotEmpty){
+                        await db.confirmDelivery(documentId:doc['id'] as int,userId:1,
+                          recipientName:recipient.text.trim(),signatureNote:note.text.trim());
+                        await refresh();
+                        if(ctx.mounted)Navigator.pop(ctx);
+                        message(lang=='ar'?'تم تسجيل التسليم':'Delivery recorded');
+                      }
+                    },
+                    child:Text(lang=='ar'?'تأكيد التسليم':'Confirm delivery'),
+                  ),
+                ));
+              })),
+          ]),
+        )))),
+    );
+  }
+
+
   Future<void> showApprovals() async {
     await refresh();
     if(!mounted)return;
