@@ -1,0 +1,172 @@
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
+
+class WmsDatabase {
+  WmsDatabase._();
+  static final WmsDatabase instance = WmsDatabase._();
+  Database? _database;
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    final root = await getDatabasesPath();
+    _database = await openDatabase(
+      p.join(root, 'naeemsoft_wms.db'),
+      version: 1,
+      onCreate: _createSchema,
+      onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
+    );
+    return _database!;
+  }
+
+  Future<void> _createSchema(Database db, int version) async {
+    await db.execute('''CREATE TABLE products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE,
+      name TEXT NOT NULL,
+      category TEXT,
+      base_unit_name TEXT NOT NULL,
+      tracking_mode TEXT NOT NULL DEFAULT 'count' CHECK(tracking_mode IN ('count','weight','volume')),
+      purchase_price_minor INTEGER NOT NULL DEFAULT 0,
+      issue_price_minor INTEGER NOT NULL DEFAULT 0,
+      min_stock_base REAL NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE product_units (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES products(id),
+      unit_name TEXT NOT NULL,
+      factor_to_base REAL NOT NULL CHECK(factor_to_base > 0),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      UNIQUE(product_id, unit_name)
+    )''');
+    await db.execute('''CREATE TABLE suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
+      address TEXT, notes TEXT, is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT,
+      address TEXT, notes TEXT, is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_no TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK(kind IN ('receipt','issue','transfer','return_in','return_out','adjustment')),
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending_approval','approved','rejected','cancelled')),
+      party_type TEXT CHECK(party_type IN ('supplier','customer','department','warehouse')),
+      party_id INTEGER, party_name_snapshot TEXT, notes TEXT,
+      created_by INTEGER, created_at TEXT NOT NULL, submitted_at TEXT,
+      approved_by INTEGER, approved_at TEXT, rejection_reason TEXT,
+      delivery_status TEXT NOT NULL DEFAULT 'not_ready' CHECK(delivery_status IN ('not_ready','awaiting_delivery','delivered','partially_delivered')),
+      delivered_by INTEGER, delivered_at TEXT, recipient_name TEXT, recipient_signature_note TEXT
+    )''');
+    await db.execute('''CREATE TABLE document_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+      product_name_snapshot TEXT NOT NULL, unit_name_snapshot TEXT NOT NULL,
+      entered_quantity REAL NOT NULL CHECK(entered_quantity > 0),
+      factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0),
+      base_quantity REAL NOT NULL CHECK(base_quantity > 0),
+      unit_price_minor INTEGER NOT NULL DEFAULT 0,
+      packaging_note TEXT, created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE stock_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+      document_line_id INTEGER NOT NULL REFERENCES document_lines(id) ON DELETE RESTRICT,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+      direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+      quantity_base REAL NOT NULL CHECK(quantity_base > 0),
+      created_by INTEGER, created_at TEXT NOT NULL,
+      UNIQUE(document_line_id)
+    )''');
+    await db.execute('''CREATE TABLE approval_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+      action TEXT NOT NULL CHECK(action IN ('submitted','approved','rejected','cancelled')),
+      actor_id INTEGER, actor_name_snapshot TEXT, notes TEXT, created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL, action TEXT NOT NULL, actor_id INTEGER,
+      details TEXT, created_at TEXT NOT NULL
+    )''');
+    await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
+    await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
+    await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
+    await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
+    await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
+    await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
+  }
+
+  Future<double> getAvailableStock(int productId) async {
+    final db = await database;
+    final rows = await db.rawQuery('''SELECT COALESCE(SUM(CASE
+      WHEN direction = 'IN' THEN quantity_base ELSE -quantity_base END), 0) AS balance
+      FROM stock_movements WHERE product_id = ?''', [productId]);
+    return (rows.first['balance'] as num?)?.toDouble() ?? 0;
+  }
+
+  // Only pending documents can be approved. Posting and status transition are atomic.
+  Future<void> approveDocument({required int documentId, required int approverId}) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final docs = await txn.query('documents', where: 'id = ?', whereArgs: [documentId], limit: 1);
+      if (docs.isEmpty) throw StateError('Document not found');
+      final doc = docs.first;
+      if (doc['status'] != 'pending_approval') throw StateError('Only pending documents can be approved');
+      final kind = doc['kind'] as String;
+      if (kind != 'receipt' && kind != 'issue') throw StateError('Unsupported document kind in this milestone');
+      final lines = await txn.query('document_lines', where: 'document_id = ?', whereArgs: [documentId]);
+      if (lines.isEmpty) throw StateError('Cannot approve an empty document');
+      if (kind == 'issue') {
+        for (final line in lines) {
+          final rows = await txn.rawQuery('''SELECT COALESCE(SUM(CASE
+            WHEN direction = 'IN' THEN quantity_base ELSE -quantity_base END), 0) AS balance
+            FROM stock_movements WHERE product_id = ?''', [line['product_id']]);
+          final balance = (rows.first['balance'] as num).toDouble();
+          final requested = (line['base_quantity'] as num).toDouble();
+          if (requested > balance) throw StateError('Insufficient stock for ${line['product_name_snapshot']}');
+        }
+      }
+      final now = DateTime.now().toIso8601String();
+      for (final line in lines) {
+        await txn.insert('stock_movements', {
+          'document_id': documentId, 'document_line_id': line['id'],
+          'product_id': line['product_id'], 'direction': kind == 'receipt' ? 'IN' : 'OUT',
+          'quantity_base': line['base_quantity'], 'created_by': approverId, 'created_at': now,
+        });
+      }
+      await txn.update('documents', {
+        'status': 'approved', 'approved_by': approverId, 'approved_at': now,
+        'delivery_status': kind == 'issue' ? 'awaiting_delivery' : 'not_ready',
+      }, where: 'id = ?', whereArgs: [documentId]);
+      await txn.insert('approval_history', {
+        'document_id': documentId, 'action': 'approved', 'actor_id': approverId,
+        'actor_name_snapshot': 'User #$approverId', 'created_at': now,
+      });
+    });
+  }
+
+  Future<void> confirmDelivery({required int documentId, required int userId, required String recipientName, String? signatureNote}) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final rows = await txn.query('documents', where: 'id = ?', whereArgs: [documentId], limit: 1);
+      if (rows.isEmpty) throw StateError('Document not found');
+      final doc = rows.first;
+      if (doc['kind'] != 'issue' || doc['status'] != 'approved') throw StateError('Only approved issue documents can be delivered');
+      if (doc['delivery_status'] == 'delivered') throw StateError('Already delivered');
+      await txn.update('documents', {
+        'delivery_status': 'delivered', 'delivered_by': userId,
+        'delivered_at': DateTime.now().toIso8601String(),
+        'recipient_name': recipientName, 'recipient_signature_note': signatureNote,
+      }, where: 'id = ?', whereArgs: [documentId]);
+    });
+  }
+}
