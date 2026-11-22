@@ -1,22 +1,35 @@
 # NaeemSoft WMS
 
-Offline-first Android Warehouse Management System using Flutter and SQLite.
+Offline-first Android Warehouse Management System built with Flutter and SQLite.
 
-## Confirmed scope
-- Scalable product gallery for 100+ products.
-- User-defined units per product: carton, pack, piece, litre, kilogram, gram, and custom units.
-- Nested packaging and supplier-specific packaging snapshots per receipt.
-- Mixed-unit issue lines for the same product in one document.
-- Receipt cashier: select supplier, choose products, enter carton/pack/piece structure and purchase prices.
-- Issue cashier: select customer/recipient, choose product, choose unit first, enter quantity on a numeric keypad, add to basket.
-- Draft and pending documents do not affect stock. Authorized approval posts stock movements.
-- Physical delivery confirmation is separate from approval.
-- Arabic, English, and French interface; printable receipts and issue documents.
-- Product add/edit from receiving workflow, with historical snapshots and audit trail.
-- Local SQLite database; normal warehouse operations work offline.
+## Product and unit model
+- Product gallery designed for 100+ items and scalable growth.
+- Each product has a user-selected stock base unit and user-defined transaction units.
+- Supports cartons, packs, pieces, litres, kilograms, grams, and custom units.
+- Unit conversion factors are configurable by the user.
+- Receiving lines can override the conversion factor for supplier-specific packaging and store the actual packaging description as a historical snapshot.
 
-## Current status
-This is the first foundation commit. It adds a Flutter application entry point, SQLite schema, approval/stock-ledger methods, and workflow documentation. It is not a complete or production-ready application and has not yet been built or tested on an Android device. Product editor, supplier/customer screens, complete cashiers, role administration, printing, backup/restore, and Android packaging remain for subsequent milestones.
+## Receiving and issue workflow
+- Receiving: select supplier, product, unit, actual package conversion, quantity and purchase price; add to basket and submit for approval.
+- Issue: select customer/department, product, choose unit before quantity, add mixed-unit lines to basket and submit for approval.
+- Documents are created as drafts and submitted to the approval queue.
+- Draft and pending documents do not change stock.
+- Approval posts stock movements atomically; issue approval checks aggregated requested quantities per product against available stock.
+- Physical delivery is a separate confirmation step in the data layer.
+- Product gallery, add-product dialog, receiving/issue basket and approval queue are implemented as an initial usable milestone.
 
-## Safety
-Do not use for live inventory until the complete workflows, permissions, backup/restore, migrations, printing, and acceptance tests have been completed and verified.
+## Languages
+Arabic (RTL), English (LTR), and French (LTR) are supported in the application shell and the currently implemented product/transaction/approval flows. Remaining screens and printed documents still need complete translation and verification.
+
+## Data and architecture
+- Flutter Android application.
+- Local SQLite database; normal operation does not require internet.
+- Immutable stock movement ledger for approved receipt/issue documents.
+- Document and line snapshots preserve names, units, factors, prices, and packaging notes.
+- Database and workflow documentation are in lib/data/wms_database.dart and docs/WORKFLOWS.md.
+
+## Build
+GitHub Actions workflow .github/workflows/android.yml generates Android platform files, runs flutter pub get, flutter analyze, flutter test, builds a release APK, and uploads it as a workflow artifact.
+
+## Current status and limitations
+This is an active development build, not yet production-ready. Authentication and role-based authorization, delivery-confirmation screen, supplier/customer management screens, complete reports, inventory count, transfer and return workflows, PDF/thermal printing, backup/restore, migration tests, and physical-device acceptance tests remain outstanding. Do not use for live stock control until these controls and tests are completed.
