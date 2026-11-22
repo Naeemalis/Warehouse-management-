@@ -297,7 +297,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:productId,decoration:InputDecoration(labelText:t('product')),
           items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(()=>{productId=v,units=u,unitId=u.isEmpty?null:u.first['id'] as int}); }),
+          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; }); }),
         const SizedBox(height:10),
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
