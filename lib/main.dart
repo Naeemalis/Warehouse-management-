@@ -148,6 +148,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       appBar: AppBar(
         title: Text(t('title')),
         actions: [
+          IconButton(tooltip: lang=='ar'?'الموردون والعملاء':'Suppliers and customers', onPressed: () => manageParties(), icon: const Icon(Icons.people_alt_outlined)),
           IconButton(tooltip: lang=='ar'?'التسليمات':'Delivery', onPressed: () => showDeliveries(), icon: const Icon(Icons.local_shipping_outlined)),
           IconButton(tooltip: t('approvals'), onPressed: () => showApprovals(), icon: Badge(
             label: Text('${pending.length}'), isLabelVisible: pending.isNotEmpty,
