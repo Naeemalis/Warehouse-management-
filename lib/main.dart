@@ -121,7 +121,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   };
 
   String get lang => widget.language;
-  String t(String key) => words[lang]?[key] ?? words['en']![key]!;\n  String tr3(String ar, String en, String fr) => lang=='ar' ? ar : (lang=='fr' ? fr : en);
+  String t(String key) => words[lang]?[key] ?? words['en']![key]!;
+  String tr3(String ar, String en, String fr) => lang=='ar' ? ar : (lang=='fr' ? fr : en);
   bool get rtl => lang == 'ar';
 
   @override
