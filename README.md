@@ -2,34 +2,26 @@
 
 Offline-first Android Warehouse Management System built with Flutter and SQLite.
 
-## Product and unit model
-- Product gallery designed for 100+ items and scalable growth.
-- Each product has a user-selected stock base unit and user-defined transaction units.
-- Supports cartons, packs, pieces, litres, kilograms, grams, and custom units.
-- Unit conversion factors are configurable by the user.
-- Receiving lines can override the conversion factor for supplier-specific packaging and store the actual packaging description as a historical snapshot.
+## Implemented in the development branch
+- Product gallery using a responsive grid, with product creation and long-press editing for name and prices.
+- User-defined base unit and additional units/conversion factors; examples include carton, pack, piece, kg, gram, litre and custom units.
+- Supplier/customer management screens.
+- Receiving flow: supplier, product, unit, quantity, purchase price, supplier-specific conversion override and packaging note; lines are collected in a basket and submitted for approval.
+- Issue flow: customer/recipient, product, choose unit before quantity, collect mixed-unit lines in a basket and submit for approval.
+- Pending approval queue with approve/reject actions and rejection reason.
+- Draft/pending documents do not affect stock. Approval posts stock movements atomically; issue approval aggregates all lines for the same product before checking available stock.
+- Separate delivery confirmation screen for approved issue documents, recording recipient and delivery note.
+- Arabic, English and French translations for the current gallery, transaction and approval workflows; RTL for Arabic and LTR for English/French.
+- SQLite ledger, document line snapshots, approval history and audit entries for product edits.
 
-## Receiving and issue workflow
-- Receiving: select supplier, product, unit, actual package conversion, quantity and purchase price; add to basket and submit for approval.
-- Issue: select customer/department, product, choose unit before quantity, add mixed-unit lines to basket and submit for approval.
-- Documents are created as drafts and submitted to the approval queue.
-- Draft and pending documents do not change stock.
-- Approval posts stock movements atomically; issue approval checks aggregated requested quantities per product against available stock.
-- Physical delivery is a separate confirmation step in the data layer.
-- Product gallery, add-product dialog, receiving/issue basket and approval queue are implemented as an initial usable milestone.
+## Build pipeline
+GitHub Actions workflow at .github/workflows/android.yml generates Android platform files, installs Flutter dependencies, runs static analysis and tests, builds a release APK, and uploads it as an artifact. Check the Actions tab for an actual run; a workflow file alone is not proof of a successful build.
 
-## Languages
-Arabic (RTL), English (LTR), and French (LTR) are supported in the application shell and the currently implemented product/transaction/approval flows. Remaining screens and printed documents still need complete translation and verification.
+## Architecture
+- Flutter Android application with local SQLite database; normal warehouse operation is designed to work offline.
+- Stock is derived from approved ledger movements only.
+- Each document line stores the product name, unit name, conversion factor, entered quantity, base quantity, price and packaging description snapshots.
+- Supplier-specific package conversion overrides are stored on the receipt line so later product-unit edits do not rewrite history.
 
-## Data and architecture
-- Flutter Android application.
-- Local SQLite database; normal operation does not require internet.
-- Immutable stock movement ledger for approved receipt/issue documents.
-- Document and line snapshots preserve names, units, factors, prices, and packaging notes.
-- Database and workflow documentation are in lib/data/wms_database.dart and docs/WORKFLOWS.md.
-
-## Build
-GitHub Actions workflow .github/workflows/android.yml generates Android platform files, runs flutter pub get, flutter analyze, flutter test, builds a release APK, and uploads it as a workflow artifact.
-
-## Current status and limitations
-This is an active development build, not yet production-ready. Authentication and role-based authorization, delivery-confirmation screen, supplier/customer management screens, complete reports, inventory count, transfer and return workflows, PDF/thermal printing, backup/restore, migration tests, and physical-device acceptance tests remain outstanding. Do not use for live stock control until these controls and tests are completed.
+## Not production-ready yet
+Authentication and real role-based authorization are not implemented; current development UI uses a temporary demo actor identifier. Full delivery evidence/signature capture, product archive and full unit editing, opening balances, inventory counts, transfers, returns, complete reports, PDF/thermal printing, backups/restores, database migration tests, and physical Android device testing remain outstanding. Do not use this branch to control live stock until these are implemented and verified.
