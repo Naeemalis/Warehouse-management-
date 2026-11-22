@@ -149,6 +149,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       appBar: AppBar(
         title: Text(t('title')),
         actions: [
+          IconButton(tooltip: tr3('الفواتير','Documents','Documents'), onPressed: () => showDocuments(), icon: const Icon(Icons.receipt_long_outlined)),
+          IconButton(tooltip: tr3('كشف حساب عميل','Customer statement','Relevé client'), onPressed: () => showCustomerAccounts(), icon: const Icon(Icons.account_balance_wallet_outlined)),
+          IconButton(tooltip: tr3('كشف المنصرف','Issue register','Registre des sorties'), onPressed: () => showDocuments(kind:'issue'), icon: const Icon(Icons.outbox_outlined)),
           IconButton(tooltip: lang=='ar'?'الموردون والعملاء':'Suppliers and customers', onPressed: () => manageParties(), icon: const Icon(Icons.people_alt_outlined)),
           IconButton(tooltip: lang=='ar'?'التسليمات':'Delivery', onPressed: () => showDeliveries(), icon: const Icon(Icons.local_shipping_outlined)),
           IconButton(tooltip: t('approvals'), onPressed: () => showApprovals(), icon: Badge(
@@ -340,8 +343,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           const SizedBox(height:8),
           TextField(controller:packaging,decoration:InputDecoration(labelText:tr3('تفاصيل التعبئة الفعلية','Actual packaging details','Détails réels de l’emballage'),hintText:tr3('مثال: 4 بواكت × 6 حبات','e.g. 4 packs × 6 pieces','ex. : 4 paquets × 6 pièces'))),
           const SizedBox(height:8),
-          TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:t('price'))),
         ],
+        const SizedBox(height:8),
+        TextField(controller:price,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:receiving?tr3('سعر الشراء للوحدة','Purchase price per unit','Prix d’achat par unité'):tr3('سعر الصرف للوحدة','Issue price per unit','Prix de sortie par unité'))),
         const SizedBox(height:12),
         FilledButton.icon(onPressed:(){
           if(productId==null||unitId==null)return;
@@ -445,6 +449,22 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 leading:const Icon(Icons.person_outline),
                 title:Text('${p['name']}'),
                 subtitle:Text('${p['phone']??''}'),
+                trailing:PopupMenuButton<String>(
+                  onSelected:(action) async {
+                    if(action=='edit') await editParty(kind,p);
+                    if(action=='archive'){
+                      final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
+                        title:Text(tr3('إيقاف هذا السجل؟','Archive this record?','Archiver cet enregistrement ?')),
+                        content:Text(tr3('سيختفي من قوائم الاختيار مع بقاء الفواتير السابقة.','It will be hidden from selectors while historical documents remain.','Il sera masqué des listes, sans supprimer l’historique.')),
+                        actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('confirm')))]));
+                      if(ok==true){await db.archiveParty(table:kind,id:p['id'] as int); final r=await db.listParties(kind);setSheet(()=>rows=r);}
+                    }
+                  },
+                  itemBuilder:(_)=>[
+                    PopupMenuItem(value:'edit',child:Text(tr3('تعديل الاسم','Edit name','Modifier le nom'))),
+                    PopupMenuItem(value:'archive',child:Text(tr3('حذف / إيقاف','Archive','Archiver'))),
+                  ],
+                ),
               )).toList())),
             FilledButton.icon(
               onPressed:() async {
@@ -567,4 +587,169 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         )))),
     );
   }
+
+  Future<void> editParty(String table, Map<String,Object?> party) async {
+    final name=TextEditingController(text:'${party['name']}');
+    final phone=TextEditingController(text:'${party['phone']??''}');
+    final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
+      title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+        const SizedBox(height:8),
+        TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
+    ));
+    if(ok==true){
+      await db.updateParty(table:table,id:party['id'] as int,name:name.text,phone:phone.text);
+      message(tr3('تم تحديث البيانات','Details updated','Informations mises à jour'));
+    }
+  }
+
+  String money(Object? minor) => ((minor as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+
+  Future<void> showDocuments({String? kind}) async {
+    final docs=await db.listDocuments(kind:kind);
+    if(!mounted)return;
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.78,
+          child:Column(children:[
+            Text(kind=='issue'?tr3('سجل المنصرف','Issue register','Registre des sorties'):tr3('الفواتير والمستندات','Invoices and documents','Factures et documents'),style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:10),
+            Expanded(child:docs.isEmpty?Center(child:Text(tr3('لا توجد فواتير','No documents','Aucun document'))):ListView.builder(
+              itemCount:docs.length,itemBuilder:(ctx,i){
+                final d=docs[i];
+                final isReceipt=d['kind']=='receipt';
+                return Card(child:ListTile(
+                  leading:Icon(isReceipt?Icons.move_to_inbox:Icons.outbox),
+                  title:Text('${d['document_no']} · ${d['party_name_snapshot']??''}'),
+                  subtitle:Text('${isReceipt?tr3('استلام','Receipt','Réception'):tr3('صرف','Issue','Sortie')} · ${d['status']} · ${money(d['total_minor'])}'),
+                  trailing:const Icon(Icons.chevron_right),
+                  onTap:()=>showDocumentDetails(d['id'] as int),
+                ));
+              })),
+          ]),
+        )))),
+    );
+  }
+
+  Future<void> showDocumentDetails(int id) async {
+    final result=await db.documentDetails(id);
+    final doc=result['document'] as Map<String,Object?>;
+    final lines=result['lines'] as List<Map<String,Object?>>;
+    if(!mounted)return;
+    await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
+      title:Text('${doc['document_no']}'),
+      content:SizedBox(width:420,child:SingleChildScrollView(child:Column(
+        crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
+          Text('${doc['party_name_snapshot']??''}'),
+          Text('${doc['status']} · ${doc['created_at']}'),
+          const Divider(),
+          ...lines.map((l)=>ListTile(
+            contentPadding:EdgeInsets.zero,dense:true,
+            title:Text('${l['product_name_snapshot']}'),
+            subtitle:Text('${l['entered_quantity']} × ${l['unit_name_snapshot']}'),
+            trailing:Text(money((l['entered_quantity'] as num)* (l['unit_price_minor'] as num))),
+          )),
+          const Divider(),
+          Text('${tr3('الإجمالي','Total','Total')}: ${money(doc['total_minor'])}',style:const TextStyle(fontWeight:FontWeight.bold)),
+        ],
+      ))),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel')))],
+    ));
+  }
+
+  Future<void> showCustomerAccounts() async {
+    final customers=await db.listParties('customers');
+    if(customers.isEmpty){message(tr3('أضف عميلاً أولاً','Add a customer first','Ajoutez d’abord un client'));return;}
+    int? selected=customers.first['id'] as int;
+    Map<String,Object?>? statement=await db.customerStatement(selected);
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
+        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.82,
+          child:Column(children:[
+            Text(tr3('كشف حساب العميل','Customer statement','Relevé du client'),style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:10),
+            DropdownButtonFormField<int>(
+              value:selected,decoration:InputDecoration(labelText:t('customer')),
+              items:customers.map((c)=>DropdownMenuItem(value:c['id'] as int,child:Text('${c['name']}'))).toList(),
+              onChanged:(v) async {if(v==null)return;final s=await db.customerStatement(v);setSheet(()=>{selected=v,statement=s});},
+            ),
+            if(statement!=null)...[
+              const SizedBox(height:10),
+              Row(children:[
+                Expanded(child:Text('${tr3('إجمالي المستحق','Total issued','Total dû')}: ${money(statement!['total_debit_minor'])}')),
+                Expanded(child:Text('${tr3('المدفوع','Paid','Payé')}: ${money(statement!['total_paid_minor'])}')),
+              ]),
+              const SizedBox(height:6),
+              Text('${tr3('الرصيد المتبقي','Balance due','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height:8),
+              SizedBox(width:double.infinity,child:FilledButton.icon(
+                onPressed:()=>recordCustomerPayment(selected!,ctx,()=>setSheet((){})),
+                icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة','Record payment','Enregistrer un paiement')),
+              )),
+              const Divider(),
+              Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
+                ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
+                :ListView.builder(itemCount:(statement!['entries'] as List).length,itemBuilder:(ctx,i){
+                  final e=(statement!['entries'] as List<Map<String,Object?>>)[i];
+                  final payment=e['entry_type']=='payment';
+                  return ListTile(
+                    dense:true,leading:Icon(payment?Icons.payments:Icons.receipt_long),
+                    title:Text('${e['document_no']} · ${payment?tr3('دفعة','Payment','Paiement'):tr3('فاتورة صرف','Issue invoice','Facture de sortie')}'),
+                    subtitle:Text('${e['entry_date']} · ${e['status']}'),
+                    trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
+                      Text(payment?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
+                    ]),
+                  );
+                })),
+            ],
+          ]),
+        ))),
+      )),
+    );
+  }
+
+  Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext, VoidCallback onSaved) async {
+    final amount=TextEditingController();
+    final reference=TextEditingController();
+    final notes=TextEditingController();
+    String method='cash';
+    final ok=await showDialog<bool>(context:context,builder:(d)=>StatefulBuilder(builder:(d,setLocal)=>AlertDialog(
+      title:Text(tr3('تسجيل دفعة من العميل','Record customer payment','Enregistrer un paiement client')),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('المبلغ','Amount','Montant'))),
+        const SizedBox(height:8),
+        DropdownButtonFormField<String>(value:method,decoration:InputDecoration(labelText:tr3('طريقة الدفع','Payment method','Mode de paiement')),
+          items:[DropdownMenuItem(value:'cash',child:Text(tr3('نقداً','Cash','Espèces'))),DropdownMenuItem(value:'bank',child:Text(tr3('تحويل بنكي','Bank transfer','Virement'))),DropdownMenuItem(value:'other',child:Text(tr3('أخرى','Other','Autre')))],
+          onChanged:(v)=>setLocal(()=>method=v??'cash')),
+        const SizedBox(height:8),
+        TextField(controller:reference,decoration:InputDecoration(labelText:tr3('رقم المرجع','Reference','Référence'))),
+        const SizedBox(height:8),
+        TextField(controller:notes,decoration:InputDecoration(labelText:tr3('ملاحظات','Notes','Notes'))),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
+    )));
+    if(ok==true){
+      final value=double.tryParse(amount.text.replaceAll(',','.'))??0;
+      if(value<=0){message(tr3('أدخل مبلغاً صحيحاً','Enter a valid amount','Saisissez un montant valide'));return;}
+      await db.addCustomerPayment(customerId:customerId,amountMinor:(value*100).round(),
+        paymentDate:DateTime.now().toIso8601String(),method:method,
+        referenceNo:reference.text,notes:notes.text);
+      onSaved();
+      final fresh=await db.customerStatement(customerId);
+      if(sheetContext.mounted){
+        // The statement panel is rebuilt by its parent after the payment.
+        message(tr3('تم تسجيل الدفعة','Payment recorded','Paiement enregistré'));
+      }
+    }
+  }
+
 }
