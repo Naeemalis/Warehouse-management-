@@ -223,6 +223,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                           icon:const Icon(Icons.more_vert,size:19),
                           onSelected:(v) async {
                             if(v=='edit'){await editProduct(p);}
+                            if(v=='history'){await showProductHistory(p);}
                             if(v=='archive'){
                               final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
                                 title:Text(tr3('حذف الصنف من القائمة؟','Remove product?','Retirer le produit ?')),
@@ -232,6 +233,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                             }
                           },
                           itemBuilder:(_)=>[
+                            PopupMenuItem(value:'history',child:Text(tr3('كشف حركة وصلاحية الصنف','Stock & expiry history','Historique du stock et des dates'))),
                             PopupMenuItem(value:'edit',child:Text(tr3('تعديل الصنف','Edit product','Modifier le produit'))),
                             PopupMenuItem(value:'archive',child:Text(tr3('حذف / أرشفة','Archive product','Archiver le produit'))),
                           ],
@@ -465,6 +467,56 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         },child:Text(t('submit'))),
       ],
     )));
+  }
+
+
+  Future<void> showProductHistory(Map<String,Object?> product) async {
+    final productId=product['id'] as int;
+    final batches=await db.productBatchBalances(productId);
+    final movements=await db.productMovementHistory(productId);
+    if(!mounted)return;
+    await showDialog<void>(context:context,builder:(ctx)=>AlertDialog(
+      title:Text('${tr3('كشف حركة وصلاحية','Stock and expiry history','Historique du stock et des dates')} — ${product['name']}'),
+      content:SizedBox(width:520,height:520,child:ListView(
+        children:[
+          Text(tr3('الكميات حسب تاريخ الصلاحية','Quantities by expiry date','Quantités par date d’expiration'),
+            style:Theme.of(ctx).textTheme.titleMedium),
+          const SizedBox(height:8),
+          if(batches.isEmpty) Text(tr3('لا توجد دفعات استلام معتمدة','No approved receipt batches','Aucun lot de réception approuvé')),
+          ...batches.map((b){
+            final received=(b['received_quantity'] as num).toDouble();
+            final remaining=(b['remaining_quantity_base'] as num).toDouble();
+            final factor=(b['factor_to_base_snapshot'] as num).toDouble();
+            final remainingInReceiptUnit=factor==0?0:remaining/factor;
+            final expiry=b['expiry_date']?.toString()??tr3('غير محدد','Not recorded','Non renseignée');
+            return Card(child:ListTile(
+              title:Text('${tr3('الصلاحية','Expiry','Expiration')}: $expiry'),
+              subtitle:Text('${tr3('المستلم','Received','Reçu')}: $received ${b['unit_name_snapshot']}  •  ${tr3('المتبقي','Remaining','Restant')}: ${remainingInReceiptUnit.toStringAsFixed(3)} ${b['unit_name_snapshot']}'),
+              trailing:Text('${remaining.toStringAsFixed(2)} ${product['base_unit_name']}'),
+            ));
+          }),
+          const Divider(height:24),
+          Text(tr3('سجل الحركات','Movement ledger','Journal des mouvements'),style:Theme.of(ctx).textTheme.titleMedium),
+          const SizedBox(height:8),
+          if(movements.isEmpty) Text(tr3('لا توجد حركات بعد','No movements yet','Aucun mouvement')),
+          ...movements.map((m){
+            final incoming=m['direction']=='IN';
+            final allocated=(m['allocated_quantity'] as num?)?.toDouble();
+            final unit=m['allocated_unit']??m['unit_name_snapshot'];
+            final qty=allocated??(m['entered_quantity'] as num).toDouble();
+            return ListTile(
+              dense:true,
+              leading:Icon(incoming?Icons.south_west:Icons.north_east,
+                color:incoming?Colors.green:Colors.deepOrange),
+              title:Text('${incoming?tr3('استلام','Receipt','Réception'):tr3('صرف','Issue','Sortie')} • ${m['document_no']}'),
+              subtitle:Text('${m['created_at']}\n$qty $unit • ${tr3('الصلاحية','Expiry','Expiration')}: ${m['expiry_date']??'—'}'),
+              trailing:Text('${(m['allocated_base_quantity'] as num?)?.toStringAsFixed(2)??(m['quantity_base'] as num).toStringAsFixed(2)} ${product['base_unit_name']}'),
+            );
+          }),
+        ],
+      )),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel')))],
+    ));
   }
 
 
