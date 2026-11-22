@@ -285,7 +285,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if (productRows.isEmpty) { message(t('empty')); await addProduct(); return; }
     int? partyId=partyRows.first['id'] as int;
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
-    List<Map<String,Object?>> units=await db.listUnits(productId!);
+    List<Map<String,Object?>> units=await db.listUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController(text:'1');
     final price=TextEditingController(text:'0');
