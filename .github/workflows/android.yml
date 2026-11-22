@@ -1,6 +1,7 @@
 name: Flutter Android CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, feature/wms-foundation]
   pull_request:
