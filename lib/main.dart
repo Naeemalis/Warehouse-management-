@@ -335,12 +335,12 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:productId,decoration:InputDecoration(labelText:t('product')),
           items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; factor.text=u.isEmpty?'1':'${u.first['factor_to_base']}'; }); }),
+          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; factor.text=u.isEmpty?'1':'${u.first['factor_to_base']}'; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; factor.text='${u['factor_to_base']}'; }); }),
+          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; factor.text='${u['factor_to_base']}'; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
         const SizedBox(height:8),
@@ -486,12 +486,15 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           ...batches.map((b){
             final received=(b['received_quantity'] as num).toDouble();
             final remaining=(b['remaining_quantity_base'] as num).toDouble();
+            final receivedBase=(b['received_quantity_base'] as num).toDouble();
+            final issued=receivedBase-remaining;
             final factor=(b['factor_to_base_snapshot'] as num).toDouble();
             final remainingInReceiptUnit=factor==0?0:remaining/factor;
+            final issuedInReceiptUnit=factor==0?0:issued/factor;
             final expiry=b['expiry_date']?.toString()??tr3('غير محدد','Not recorded','Non renseignée');
             return Card(child:ListTile(
               title:Text('${tr3('الصلاحية','Expiry','Expiration')}: $expiry'),
-              subtitle:Text('${tr3('المستلم','Received','Reçu')}: $received ${b['unit_name_snapshot']}  •  ${tr3('المتبقي','Remaining','Restant')}: ${remainingInReceiptUnit.toStringAsFixed(3)} ${b['unit_name_snapshot']}'),
+              subtitle:Text('${tr3('المستلم','Received','Reçu')}: $received ${b['unit_name_snapshot']}  •  ${tr3('المصروف','Issued','Sorti')}: ${issuedInReceiptUnit.toStringAsFixed(3)} ${b['unit_name_snapshot']}  •  ${tr3('المتبقي','Remaining','Restant')}: ${remainingInReceiptUnit.toStringAsFixed(3)} ${b['unit_name_snapshot']}'),
               trailing:Text('${remaining.toStringAsFixed(2)} ${product['base_unit_name']}'),
             ));
           }),
