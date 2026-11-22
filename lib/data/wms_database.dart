@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 2,
+      version: 3,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -26,6 +26,59 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_customer_payments_customer_date ON customer_payments(customer_id, payment_date)');
+        }
+        if (oldVersion < 3) {
+          await _createExpiryTraceabilitySchema(db);
+          final incoming = await db.rawQuery("""
+            SELECT m.id movement_id,m.document_id,m.product_id,m.quantity_base,m.created_at,
+              l.id line_id,l.entered_quantity,l.unit_name_snapshot,l.factor_to_base_snapshot
+            FROM stock_movements m JOIN document_lines l ON l.id=m.document_line_id
+            WHERE m.direction='IN' ORDER BY m.created_at,m.id
+          """);
+          for (final r in incoming) {
+            final batchId=await db.insert('stock_batches',{
+              'product_id':r['product_id'],'receipt_document_id':r['document_id'],
+              'receipt_document_line_id':r['line_id'],'expiry_date':null,
+              'received_quantity_base':r['quantity_base'],'received_quantity':r['entered_quantity'],
+              'unit_name_snapshot':r['unit_name_snapshot'],'factor_to_base_snapshot':r['factor_to_base_snapshot'],
+              'created_at':r['created_at'],
+            });
+            await db.insert('stock_movement_allocations',{
+              'stock_movement_id':r['movement_id'],'batch_id':batchId,
+              'quantity_base':r['quantity_base'],'entered_quantity':r['entered_quantity'],
+              'unit_name_snapshot':r['unit_name_snapshot'],'factor_to_base_snapshot':r['factor_to_base_snapshot'],
+            });
+          }
+          final outgoing=await db.rawQuery("""
+            SELECT m.id movement_id,m.product_id,m.quantity_base,m.created_at,
+              l.unit_name_snapshot,l.factor_to_base_snapshot
+            FROM stock_movements m JOIN document_lines l ON l.id=m.document_line_id
+            WHERE m.direction='OUT' ORDER BY m.created_at,m.id
+          """);
+          for(final m in outgoing){
+            var remaining=(m['quantity_base'] as num).toDouble();
+            final batches=await db.rawQuery("""
+              SELECT b.*,b.received_quantity_base-COALESCE((
+                SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+                JOIN stock_movements sm ON sm.id=a.stock_movement_id
+                WHERE a.batch_id=b.id AND sm.direction='OUT'
+              ),0) available_base
+              FROM stock_batches b WHERE b.product_id=? ORDER BY b.created_at,b.id
+            """,[m['product_id']]);
+            for(final b in batches){
+              if(remaining<=0.000001) break;
+              final available=(b['available_base'] as num).toDouble();
+              if(available<=0) continue;
+              final take=available<remaining?available:remaining;
+              final factor=(m['factor_to_base_snapshot'] as num).toDouble();
+              await db.insert('stock_movement_allocations',{
+                'stock_movement_id':m['movement_id'],'batch_id':b['id'],
+                'quantity_base':take,'entered_quantity':take/factor,
+                'unit_name_snapshot':m['unit_name_snapshot'],'factor_to_base_snapshot':factor,
+              });
+              remaining-=take;
+            }
+          }
         }
       },
       onConfigure: (db) async { await db.execute('PRAGMA foreign_keys = ON'); },
@@ -128,6 +181,44 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
+    await _createExpiryTraceabilitySchema(db);
+  }
+
+  Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS document_line_expiry_splits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_line_id INTEGER NOT NULL REFERENCES document_lines(id) ON DELETE RESTRICT,
+      expiry_date TEXT,
+      entered_quantity REAL NOT NULL CHECK(entered_quantity > 0),
+      unit_name_snapshot TEXT NOT NULL,
+      factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0),
+      quantity_base REAL NOT NULL CHECK(quantity_base > 0),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS stock_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+      receipt_document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+      receipt_document_line_id INTEGER NOT NULL REFERENCES document_lines(id) ON DELETE RESTRICT,
+      expiry_date TEXT,
+      received_quantity_base REAL NOT NULL CHECK(received_quantity_base > 0),
+      received_quantity REAL NOT NULL CHECK(received_quantity > 0),
+      unit_name_snapshot TEXT NOT NULL,
+      factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS stock_movement_allocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_movement_id INTEGER NOT NULL REFERENCES stock_movements(id) ON DELETE RESTRICT,
+      batch_id INTEGER NOT NULL REFERENCES stock_batches(id) ON DELETE RESTRICT,
+      quantity_base REAL NOT NULL CHECK(quantity_base > 0),
+      entered_quantity REAL NOT NULL CHECK(entered_quantity > 0),
+      unit_name_snapshot TEXT NOT NULL,
+      factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0)
+    )''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_expiry_splits_line ON document_line_expiry_splits(document_line_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_stock_batches_product_expiry ON stock_batches(product_id,expiry_date)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_movement_allocations_batch ON stock_movement_allocations(batch_id)');
   }
 
   Future<double> getAvailableStock(int productId) async {
@@ -175,12 +266,76 @@ class WmsDatabase {
         }
       }
       final now = DateTime.now().toIso8601String();
-      for (final line in lines) {
-        await txn.insert('stock_movements', {
-          'document_id': documentId, 'document_line_id': line['id'],
-          'product_id': line['product_id'], 'direction': kind == 'receipt' ? 'IN' : 'OUT',
-          'quantity_base': line['base_quantity'], 'created_by': approverId, 'created_at': now,
+      for(final line in lines){
+        final movementId=await txn.insert('stock_movements',{
+          'document_id':documentId,'document_line_id':line['id'],
+          'product_id':line['product_id'],'direction':kind=='receipt'?'IN':'OUT',
+          'quantity_base':line['base_quantity'],'created_by':approverId,'created_at':now,
         });
+        if(kind=='receipt'){
+          final splits=await txn.query('document_line_expiry_splits',
+            where:'document_line_id=?',whereArgs:[line['id']],orderBy:'id');
+          if(splits.isEmpty){
+            final batchId=await txn.insert('stock_batches',{
+              'product_id':line['product_id'],'receipt_document_id':documentId,
+              'receipt_document_line_id':line['id'],'expiry_date':null,
+              'received_quantity_base':line['base_quantity'],'received_quantity':line['entered_quantity'],
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':line['factor_to_base_snapshot'],'created_at':now,
+            });
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batchId,
+              'quantity_base':line['base_quantity'],'entered_quantity':line['entered_quantity'],
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':line['factor_to_base_snapshot'],
+            });
+          }else{
+            for(final split in splits){
+              final batchId=await txn.insert('stock_batches',{
+                'product_id':line['product_id'],'receipt_document_id':documentId,
+                'receipt_document_line_id':line['id'],'expiry_date':split['expiry_date'],
+                'received_quantity_base':split['quantity_base'],'received_quantity':split['entered_quantity'],
+                'unit_name_snapshot':split['unit_name_snapshot'],
+                'factor_to_base_snapshot':split['factor_to_base_snapshot'],'created_at':now,
+              });
+              await txn.insert('stock_movement_allocations',{
+                'stock_movement_id':movementId,'batch_id':batchId,
+                'quantity_base':split['quantity_base'],'entered_quantity':split['entered_quantity'],
+                'unit_name_snapshot':split['unit_name_snapshot'],
+                'factor_to_base_snapshot':split['factor_to_base_snapshot'],
+              });
+            }
+          }
+        }else{
+          var remaining=(line['base_quantity'] as num).toDouble();
+          final today=DateTime.now().toIso8601String().substring(0,10);
+          final batches=await txn.rawQuery("""
+            SELECT b.*,b.received_quantity_base-COALESCE((
+              SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+              JOIN stock_movements sm ON sm.id=a.stock_movement_id
+              WHERE a.batch_id=b.id AND sm.direction='OUT'
+            ),0) available_base
+            FROM stock_batches b
+            WHERE b.product_id=? AND (b.expiry_date IS NULL OR b.expiry_date>=?)
+            ORDER BY CASE WHEN b.expiry_date IS NULL THEN 1 ELSE 0 END,
+              b.expiry_date ASC,b.created_at ASC,b.id ASC
+          """,[line['product_id'],today]);
+          for(final batch in batches){
+            if(remaining<=0.000001) break;
+            final available=(batch['available_base'] as num).toDouble();
+            if(available<=0.000001) continue;
+            final take=available<remaining?available:remaining;
+            final factor=(line['factor_to_base_snapshot'] as num).toDouble();
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batch['id'],
+              'quantity_base':take,'entered_quantity':take/factor,
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':factor,
+            });
+            remaining-=take;
+          }
+          if(remaining>0.000001) throw StateError('Insufficient non-expired stock for ${line['product_name_snapshot']}');
+        }
       }
       await txn.update('documents', {
         'status': 'approved', 'approved_by': approverId, 'approved_at': now,
@@ -305,16 +460,38 @@ extension WmsCatalogOperations on WmsDatabase {
         final qty = (line['quantity'] as num).toDouble();
         final factor = (line['factor_to_base'] as num).toDouble();
         if (qty <= 0 || factor <= 0) throw ArgumentError('Quantity and unit factor must be positive');
-        await txn.insert('document_lines', {
-          'document_id': docId, 'product_id': productId,
-          'product_name_snapshot': productRows.first['name'],
-          'unit_name_snapshot': line['unit_name'],
-          'entered_quantity': qty, 'factor_to_base_snapshot': factor,
-          'base_quantity': convertToBaseQuantity(enteredQuantity: qty, factorToBase: factor),
-          'unit_price_minor': line['unit_price_minor'] ?? 0,
-          'packaging_note': line['packaging_note'],
-          'created_at': now,
+        final baseQty=convertToBaseQuantity(enteredQuantity:qty,factorToBase:factor);
+        final lineId=await txn.insert('document_lines',{
+          'document_id':docId,'product_id':productId,
+          'product_name_snapshot':productRows.first['name'],
+          'unit_name_snapshot':line['unit_name'],
+          'entered_quantity':qty,'factor_to_base_snapshot':factor,'base_quantity':baseQty,
+          'unit_price_minor':line['unit_price_minor']??0,
+          'packaging_note':line['packaging_note'],'created_at':now,
         });
+        if(kind=='receipt'){
+          final supplied=line['expiry_splits'] as List<Map<String,Object?>>?;
+          final splits=supplied==null||supplied.isEmpty
+            ? <Map<String,Object?>>[{'expiry_date':null,'quantity':qty,'unit_name':line['unit_name'],'factor_to_base':factor}]
+            : supplied;
+          var sumBase=0.0;
+          for(final split in splits){
+            final splitQty=(split['quantity'] as num).toDouble();
+            final splitFactor=(split['factor_to_base'] as num?)?.toDouble()??factor;
+            final splitUnit=(split['unit_name'] as String?)??(line['unit_name'] as String);
+            final expiry=split['expiry_date'] as String?;
+            if(splitQty<=0||splitFactor<=0) throw ArgumentError('Expiry split quantity and factor must be positive');
+            if(expiry!=null&&DateTime.tryParse(expiry)==null) throw ArgumentError('Expiry date must use YYYY-MM-DD');
+            final splitBase=convertToBaseQuantity(enteredQuantity:splitQty,factorToBase:splitFactor);
+            sumBase+=splitBase;
+            await txn.insert('document_line_expiry_splits',{
+              'document_line_id':lineId,'expiry_date':expiry,'entered_quantity':splitQty,
+              'unit_name_snapshot':splitUnit,'factor_to_base_snapshot':splitFactor,
+              'quantity_base':splitBase,'created_at':now,
+            });
+          }
+          if((sumBase-baseQty).abs()>0.000001) throw ArgumentError('Expiry split quantities must equal the received line quantity');
+        }
       }
       return docId;
     });
@@ -362,6 +539,38 @@ extension WmsCatalogOperations on WmsDatabase {
         'actor_name_snapshot':'User #$userId', 'notes':reason.trim(), 'created_at':now,
       });
     });
+  }
+}
+
+
+extension WmsStockTraceability on WmsDatabase {
+  Future<List<Map<String,Object?>>> productBatchBalances(int productId) async {
+    final db=await database;
+    return db.rawQuery("""
+      SELECT b.*,b.received_quantity_base-COALESCE((
+        SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+        JOIN stock_movements m ON m.id=a.stock_movement_id
+        WHERE a.batch_id=b.id AND m.direction='OUT'
+      ),0) remaining_quantity_base
+      FROM stock_batches b WHERE b.product_id=?
+      ORDER BY CASE WHEN b.expiry_date IS NULL THEN 1 ELSE 0 END,
+        b.expiry_date ASC,b.created_at ASC,b.id ASC
+    """,[productId]);
+  }
+
+  Future<List<Map<String,Object?>>> productMovementHistory(int productId) async {
+    final db=await database;
+    return db.rawQuery("""
+      SELECT m.id movement_id,m.direction,m.quantity_base,m.created_at,d.document_no,d.kind,
+        l.entered_quantity,l.unit_name_snapshot,l.factor_to_base_snapshot,l.product_name_snapshot,
+        a.entered_quantity allocated_quantity,a.unit_name_snapshot allocated_unit,
+        a.quantity_base allocated_base_quantity,b.expiry_date,b.id batch_id
+      FROM stock_movements m JOIN documents d ON d.id=m.document_id
+      JOIN document_lines l ON l.id=m.document_line_id
+      LEFT JOIN stock_movement_allocations a ON a.stock_movement_id=m.id
+      LEFT JOIN stock_batches b ON b.id=a.batch_id
+      WHERE m.product_id=? ORDER BY m.created_at,m.id,a.id
+    """,[productId]);
   }
 }
 
