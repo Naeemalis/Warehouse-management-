@@ -1,0 +1,36 @@
+name: Flutter Android CI
+
+on:
+  push:
+    branches: [main, feature/wms-foundation]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Android platform project
+        run: flutter create . --platforms=android --project-name naeemsoft_wms --no-pub
+      - name: Remove generated sample widget test
+        run: rm -f test/widget_test.dart
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze Dart code
+        run: flutter analyze --no-fatal-infos
+      - name: Run tests
+        run: flutter test
+      - name: Build release APK
+        run: flutter build apk --release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: naeemsoft-wms-android-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
