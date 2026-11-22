@@ -679,7 +679,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             DropdownButtonFormField<int>(
               value:selected,decoration:InputDecoration(labelText:t('customer')),
               items:customers.map((c)=>DropdownMenuItem(value:c['id'] as int,child:Text('${c['name']}'))).toList(),
-              onChanged:(v) async {if(v==null)return;final s=await db.customerStatement(v);setSheet(()=>{selected=v,statement=s});},
+              onChanged:(v) async {if(v==null)return;final s=await db.customerStatement(v);setSheet((){selected=v;statement=s;});},
             ),
             if(statement!=null)...[
               const SizedBox(height:10),
@@ -691,7 +691,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               Text('${tr3('الرصيد المتبقي','Balance due','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
               const SizedBox(height:8),
               SizedBox(width:double.infinity,child:FilledButton.icon(
-                onPressed:()=>recordCustomerPayment(selected!,ctx,()=>setSheet((){})),
+                onPressed:() async { await recordCustomerPayment(selected!,ctx); final updated=await db.customerStatement(selected!); setSheet((){statement=updated;}); },
                 icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة','Record payment','Enregistrer un paiement')),
               )),
               const Divider(),
@@ -717,7 +717,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     );
   }
 
-  Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext, VoidCallback onSaved) async {
+  Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext) async {
     final amount=TextEditingController();
     final reference=TextEditingController();
     final notes=TextEditingController();
@@ -743,12 +743,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       await db.addCustomerPayment(customerId:customerId,amountMinor:(value*100).round(),
         paymentDate:DateTime.now().toIso8601String(),method:method,
         referenceNo:reference.text,notes:notes.text);
-      onSaved();
-      final fresh=await db.customerStatement(customerId);
-      if(sheetContext.mounted){
-        // The statement panel is rebuilt by its parent after the payment.
-        message(tr3('تم تسجيل الدفعة','Payment recorded','Paiement enregistré'));
-      }
+      if(sheetContext.mounted){ message(tr3('تم تسجيل الدفعة','Payment recorded','Paiement enregistré')); }
     }
   }
 
