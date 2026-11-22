@@ -321,27 +321,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
-    DateTime? selectedExpiry;
-    Future<void> addExpirySplit() async {
-      final picked=await showDatePicker(
-        context:ctx,
-        initialDate:selectedExpiry??DateTime.now().add(const Duration(days:365)),
-        firstDate:DateTime(2000),lastDate:DateTime(2100),
-      );
-      if(picked==null)return;
-      final q=double.tryParse(expiryQty.text.replaceAll(',','.'))??0;
-      final f=double.tryParse(factor.text.replaceAll(',','.'))??0;
-      if(q<=0||f<=0){message(tr3('أدخل كمية ومعامل تحويل صحيحين','Enter a valid quantity and conversion factor','Saisissez une quantité et un facteur valides'));return;}
-      setLocal((){
-        selectedExpiry=picked;
-        expirySplits.add({
-          'expiry_date':picked.toIso8601String().substring(0,10),
-          'quantity':q,'unit_name':units.firstWhere((u)=>u['id']==unitId)['unit_name'],
-          'factor_to_base':f,
-        });
-        expiryQty.text='1';
-      });
-    }
+
     await showDialog<void>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,setLocal)=>AlertDialog(
       title:Text(receiving?t('receive'):t('issue')),
       content:SizedBox(width:420,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
@@ -394,7 +374,26 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             Expanded(child:TextField(controller:expiryQty,keyboardType:const TextInputType.numberWithOptions(decimal:true),
               decoration:InputDecoration(labelText:tr3('كمية تاريخ الصلاحية','Quantity for expiry date','Quantité pour date d’expiration')))),
             const SizedBox(width:8),
-            FilledButton.tonalIcon(onPressed:addExpirySplit,icon:const Icon(Icons.event),label:Text(tr3('إضافة صلاحية','Add expiry','Ajouter date'))),
+            FilledButton.tonalIcon(onPressed:() async {
+              final picked=await showDatePicker(
+                context:ctx,
+                initialDate:DateTime.now().add(const Duration(days:365)),
+                firstDate:DateTime(2000),lastDate:DateTime(2100),
+              );
+              if(picked==null)return;
+              final splitQty=double.tryParse(expiryQty.text.replaceAll(',','.'))??0;
+              final splitFactor=double.tryParse(factor.text.replaceAll(',','.'))??0;
+              if(splitQty<=0||splitFactor<=0){message(tr3('أدخل كمية ومعامل تحويل صحيحين','Enter a valid quantity and conversion factor','Saisissez une quantité et un facteur valides'));return;}
+              setLocal((){
+                expirySplits.add({
+                  'expiry_date':picked.toIso8601String().substring(0,10),
+                  'quantity':splitQty,
+                  'unit_name':units.firstWhere((u)=>u['id']==unitId)['unit_name'],
+                  'factor_to_base':splitFactor,
+                });
+                expiryQty.text='1';
+              });
+            },icon:const Icon(Icons.event),label:Text(tr3('إضافة صلاحية','Add expiry','Ajouter date')) ),
           ]),
           if(expirySplits.isNotEmpty) ...[
             const SizedBox(height:6),
@@ -436,7 +435,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
           });
           quantity.text='1';
-          expirySplits.clear(); expiryQty.text='1'; selectedExpiry=null;
+          expirySplits.clear(); expiryQty.text='1';
           setLocal((){});
         },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart'))),
         const Divider(height:22),
