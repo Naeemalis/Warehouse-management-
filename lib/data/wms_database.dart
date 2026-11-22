@@ -528,11 +528,13 @@ extension WmsFinanceAndHistory on WmsDatabase {
     await db.transaction((txn) async {
       final rows=await txn.query('products',where:'id=?',whereArgs:[productId],limit:1);
       if(rows.isEmpty) throw StateError('Product not found');
-      final linked=Sqflite.firstIntValue(await txn.rawQuery(
-        'SELECT COUNT(*) FROM document_lines WHERE product_id=?',[productId]))??0;
-      if(linked>0) throw StateError('Product has document history; archive it instead of deleting');
       await txn.update('products',{'is_active':0,'updated_at':DateTime.now().toIso8601String()},
         where:'id=?',whereArgs:[productId]);
+      await txn.insert('audit_log',{
+        'entity_type':'product','entity_id':productId,'action':'archived',
+        'actor_id':1,'details':'Product hidden from active catalogue; history preserved',
+        'created_at':DateTime.now().toIso8601String(),
+      });
     });
   }
 }
