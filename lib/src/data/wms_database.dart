@@ -91,7 +91,7 @@ class WmsDatabase {
         issue_base_quantity REAL NOT NULL CHECK(issue_base_quantity>0), line_note TEXT
       )""",
       """CREATE TABLE stock_batches (
-        id INTEGER PRIMARY KEY, receiving_line_id INTEGER NOT NULL UNIQUE REFERENCES receiving_lines(id) ON DELETE RESTRICT,
+        id INTEGER PRIMARY KEY, receiving_line_id INTEGER UNIQUE REFERENCES receiving_lines(id) ON DELETE RESTRICT,
         product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
         received_base_quantity REAL NOT NULL CHECK(received_base_quantity>0),
         remaining_base_quantity REAL NOT NULL CHECK(remaining_base_quantity>=0),
@@ -143,7 +143,7 @@ class WmsDatabase {
       "CREATE INDEX ix_count_status ON inventory_counts(status)",
       """CREATE TRIGGER trg_freeze_stock_during_count
         BEFORE INSERT ON stock_movements
-        WHEN EXISTS(SELECT 1 FROM inventory_counts WHERE status='active')
+        WHEN EXISTS(SELECT 1 FROM inventory_counts WHERE status='active') AND NEW.source_type <> 'inventory_count'
         BEGIN SELECT RAISE(ABORT, 'Inventory is frozen while a count is active'); END""",
       "INSERT OR IGNORE INTO units(id,code,name_ar,symbol,allows_fraction) VALUES (1,'piece','قطعة','قطعة',0),(2,'kg','كيلوغرام','كجم',1),(3,'g','جرام','جم',1)",
     ];
