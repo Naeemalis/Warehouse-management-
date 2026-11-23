@@ -894,7 +894,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     }
   }
 
-  String money(Object? minor) => ((minor as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+  String money(Object? minor) => (((minor as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2);
 
   Future<void> showDocuments({String? kind}) async {
     final docs=await db.listDocuments(kind:kind);
@@ -980,6 +980,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               ]),
               const SizedBox(height:6),
               Text('${tr3('الرصيد المتبقي','Balance due','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              Text((statement!['balance_minor'] as num).toDouble()>=0
+                ?tr3('حالة الحساب: العميل مدين','Account status: customer owes','Statut : le client est débiteur')
+                :tr3('حالة الحساب: رصيد دائن للعميل','Account status: credit owed to customer','Statut : solde créditeur du client'),
+                style:Theme.of(ctx).textTheme.bodySmall),
               const SizedBox(height:8),
               SizedBox(width:double.infinity,child:FilledButton.icon(
                 onPressed:() async { await recordCustomerPayment(selected!,ctx); final updated=await db.customerStatement(selected!); setSheet((){statement=updated;}); },
@@ -1043,6 +1047,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               ]),
               const SizedBox(height:6),
               Text('${tr3('الرصيد المتبقي','Outstanding balance','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              Text((statement!['balance_minor'] as num).toDouble()>=0
+                ?tr3('حالة الحساب: رصيد دائن للمورد (مستحق علينا)','Account status: payable to supplier','Statut : dette envers le fournisseur')
+                :tr3('حالة الحساب: رصيد مدين للمورد','Account status: supplier owes us','Statut : le fournisseur nous doit'),
+                style:Theme.of(ctx).textTheme.bodySmall),
               const SizedBox(height:8),
               SizedBox(width:double.infinity,child:FilledButton.icon(
                 onPressed:() async {await recordSupplierPayment(selected!,ctx);final updated=await db.supplierStatement(selected!);setSheet((){statement=updated;});},
