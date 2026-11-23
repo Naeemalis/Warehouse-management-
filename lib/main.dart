@@ -337,12 +337,17 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     Map<String,Object?>? unit;
     List<Map<String,Object?>> units=[];
     final basket=<Map<String,Object?>>[];
-    String qty='1';
+    String qty='';
     Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
       final loaded=await db.listUnits(p['id'] as int);
       setLocal(() { productId=p['id'] as int; units=loaded; unit=null; });
     }
-    final initial=selectedProduct==null?null:available.where((p)=>p['id']==selectedProduct['id']).firstOrNull;
+    Map<String,Object?>? initial;
+    if(selectedProduct!=null){
+      for(final candidate in available){
+        if(candidate['id']==selectedProduct['id']){initial=candidate;break;}
+      }
+    }
     if(initial!=null){productId=initial['id'] as int;units=await db.listUnits(productId!);}
     await showDialog<void>(context:context,barrierDismissible:false,builder:(ctx)=>Dialog(
       insetPadding:const EdgeInsets.all(10),
@@ -418,7 +423,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               final p=available.firstWhere((p)=>p['id']==productId);final u=unit!;
               basket.add({'product_id':productId,'product_name':p['name'],'unit_name':u['unit_name'],
                 'factor_to_base':u['factor_to_base'],'quantity':n,'unit_price_minor':u['sale_price_minor']??0});
-              qty='1';unit=null;setLocal((){});
+              qty='';unit=null;setLocal((){});
             },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart')))),
           const Divider(height:10),
           Align(alignment:AlignmentDirectional.centerStart,child:Text(t('cart')+' ('+basket.length.toString()+')')),
