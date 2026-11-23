@@ -1,4 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/wms_database.dart';
 
@@ -167,6 +172,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             onSelected: (v) {
               if(v=='docs') showDocuments();
               else if(v=='statement') showCustomerAccounts();
+              else if(v=='supplierStatement') showSupplierAccounts();
               else if(v=='issues') showDocuments(kind:'issue');
               else if(v=='parties') manageParties();
               else if(v=='deliveries') showDeliveries();
@@ -176,6 +182,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             itemBuilder: (_) => [
               PopupMenuItem(value:'docs',child:Text(tr3('الفواتير','Invoices','Factures'))),
               PopupMenuItem(value:'statement',child:Text(tr3('كشف حساب عميل والدفعات','Customer statement & payments','Relevé client et paiements'))),
+              PopupMenuItem(value:'supplierStatement',child:Text(tr3('كشف حساب المورد والدفعات','Supplier statement & payments','Relevé fournisseur et paiements'))),
               PopupMenuItem(value:'issues',child:Text(tr3('سجل المنصرف','Issue register','Registre des sorties'))),
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
@@ -267,6 +274,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final name = TextEditingController();
     final base = TextEditingController(text: lang == 'ar' ? 'حبة' : 'piece');
     final units = TextEditingController();
+    final baseSalePrice = TextEditingController();
     String mode = 'count';
     final result = await showDialog<bool>(context:context, builder:(ctx) => StatefulBuilder(
       builder:(ctx,setLocal) => AlertDialog(
@@ -281,7 +289,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             items:[DropdownMenuItem(value:'count',child:Text(t('count'))),DropdownMenuItem(value:'weight',child:Text(t('weight'))),DropdownMenuItem(value:'volume',child:Text(t('volume')))],
             onChanged:(v)=>setLocal(()=>mode=v??'count')),
           const SizedBox(height:10),
-          TextField(controller:units, decoration:InputDecoration(labelText:t('units'),hintText:t('unitHint')), maxLines:2),
+          TextField(controller:baseSalePrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+            decoration:InputDecoration(labelText:tr3('سعر بيع وحدة الأساس','Base-unit sale price','Prix de vente de l’unité de base'))),
+          const SizedBox(height:10),
+          TextField(controller:units, decoration:InputDecoration(labelText:t('units'),
+            hintText:tr3('مثال: كرتون=24=500، باكت=6=120','Example: Carton=24=500, Pack=6=120','Exemple : Carton=24=500, Paquet=6=120')), maxLines:3),
           Align(alignment:AlignmentDirectional.centerStart, child:Text(t('baseNote'),style:Theme.of(ctx).textTheme.bodySmall)),
         ])),
         actions:[
@@ -292,15 +304,21 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if (result != true) return;
     if (name.text.trim().isEmpty || base.text.trim().isEmpty) { message(t('selectAll')); return; }
     final unitRows=<Map<String,Object?>>[
-      {'unit_name':base.text.trim(),'factor_to_base':1.0}
+      {'unit_name':base.text.trim(),'factor_to_base':1.0,'sale_price_minor':((double.tryParse(baseSalePrice.text.replaceAll(',','.'))??0)*100).round()}
     ];
+    final parsedBasePrice=double.tryParse(baseSalePrice.text.replaceAll(',','.'));
+    if(parsedBasePrice==null||!parsedBasePrice.isFinite||parsedBasePrice<=0){
+      message(tr3('أدخل سعر بيع صحيحاً لوحدة الأساس','Enter a valid base-unit sale price','Saisissez un prix de vente valide pour l’unité de base'));return;
+    }
     try {
       for (final part in units.text.split(',')) {
         if (part.trim().isEmpty) continue;
         final bits=part.split('=');
-        if (bits.length!=2 || bits[0].trim().isEmpty) throw FormatException();
+        if (bits.length!=3 || bits[0].trim().isEmpty) throw FormatException();
         final factor=double.parse(bits[1].trim().replaceAll(',', '.'));
-        unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor});
+        final unitPrice=double.parse(bits[2].trim().replaceAll(',', '.'));
+        if(!factor.isFinite||factor<=0||!unitPrice.isFinite||unitPrice<=0) throw FormatException();
+        unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor,'sale_price_minor':(unitPrice*100).round()});
       }
       await db.saveProduct(name:name.text,baseUnit:base.text,trackingMode:mode,units:unitRows);
       await refresh(); message(t('created'));
@@ -308,6 +326,139 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
   Future<void> openTransaction(bool receiving,{Map<String,Object?>? selectedProduct}) async {
+    if(receiving){await _openReceiptTransaction(receiving:receiving,selectedProduct:selectedProduct);}
+    else{await _openIssueCashier(selectedProduct:selectedProduct);}
+  }
+
+  Future<void> _openIssueCashier({Map<String,Object?>? selectedProduct}) async {
+    final customers=await db.listParties('customers');
+    final available=(await db.listProducts()).where((p)=>((p['stock_base'] as num?)?.toDouble()??0)>0).toList();
+    if(!mounted)return;
+    if(customers.isEmpty){
+      final c=TextEditingController();
+      final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
+        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('name'))),
+        actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
+      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
+      return;
+    }
+    if(available.isEmpty){message(tr3('لا توجد أصناف لها رصيد متاح للصرف','No products have available stock','Aucun produit avec stock disponible'));return;}
+    int? customerId=customers.first['id'] as int;
+    int? productId;
+    Map<String,Object?>? unit;
+    List<Map<String,Object?>> units=[];
+    final basket=<Map<String,Object?>>[];
+    String qty='';
+    Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
+      final loaded=await db.listUnits(p['id'] as int);
+      setLocal(() { productId=p['id'] as int; units=loaded; unit=null; });
+    }
+    Map<String,Object?>? initial;
+    if(selectedProduct!=null){
+      for(final candidate in available){
+        if(candidate['id']==selectedProduct['id']){initial=candidate;break;}
+      }
+    }
+    if(initial!=null){productId=initial['id'] as int;units=await db.listUnits(productId!);}
+    await showDialog<void>(context:context,barrierDismissible:false,builder:(ctx)=>Dialog(
+      insetPadding:const EdgeInsets.all(10),
+      child:SafeArea(child:SizedBox(width:560,height:MediaQuery.of(ctx).size.height*.92,
+        child:StatefulBuilder(builder:(ctx,setLocal)=>Padding(padding:const EdgeInsets.all(10),child:Column(children:[
+          Row(children:[Expanded(child:Text(tr3('كاشير الصرف','Issue cashier','Caisse de sortie'),style:Theme.of(ctx).textTheme.titleLarge)),
+            IconButton(onPressed:()=>Navigator.pop(ctx),icon:const Icon(Icons.close))]),
+          DropdownButtonFormField<int>(value:customerId,isExpanded:true,decoration:InputDecoration(labelText:t('customer')),
+            items:customers.map((c)=>DropdownMenuItem(value:c['id'] as int,child:Text(c['name'].toString()))).toList(),
+            onChanged:(v)=>setLocal(()=>customerId=v)),
+          const SizedBox(height:6),
+          Align(alignment:AlignmentDirectional.centerStart,child:Text(tr3('معرض الأصناف المتاحة','Available products','Produits disponibles'))),
+          Expanded(flex:5,child:GridView.builder(
+            padding:const EdgeInsets.symmetric(vertical:6),
+            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:76,crossAxisSpacing:5,mainAxisSpacing:5),
+            itemCount:available.length,itemBuilder:(ctx,i){
+              final p=available[i];final active=productId==p['id'];
+              return OutlinedButton(
+                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(4),
+                  backgroundColor:active?Theme.of(ctx).colorScheme.primaryContainer:null),
+                onPressed:()=>selectProduct(p,setLocal),
+                child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
+                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall,maxLines:1),
+                ]));
+            })),
+          const Divider(height:10),
+          Row(children:[
+            Text(tr3('الكمية','Quantity','Quantité')+': ',style:Theme.of(ctx).textTheme.titleSmall),
+            Text(qty.isEmpty?'0':qty,style:Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.bold)),
+          ]),
+          SizedBox(height:142,child:Row(children:[
+            Expanded(flex:3,child:GridView.count(
+              crossAxisCount:4,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+              mainAxisSpacing:4,crossAxisSpacing:4,childAspectRatio:1.5,
+              children:['1','2','3','4','5','6','7','8','9','½','0','¼','⌫','.'].map((k)=>
+                OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero),
+                  onPressed:()=>setLocal((){
+                    if(k=='⌫'){if(qty.isNotEmpty)qty=qty.substring(0,qty.length-1);}
+                    else if(k=='½'){qty='0.5';}
+                    else if(k=='¼'){qty='0.25';}
+                    else if(k=='.'){if(!qty.contains('.'))qty+='.';}
+                    else{qty+=k;}
+                  }),child:Text(k,style:const TextStyle(fontWeight:FontWeight.w600)))).toList(),
+            )),
+            const VerticalDivider(width:10),
+            Expanded(flex:2,child:units.isEmpty
+              ?Center(child:Text(tr3('اختر صنفاً','Select product','Choisir un produit'),textAlign:TextAlign.center))
+              :GridView.builder(
+                gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount:2,mainAxisExtent:58,crossAxisSpacing:4,mainAxisSpacing:4),
+                itemCount:units.length,
+                itemBuilder:(ctx,i){
+                  final u=units[i];final active=unit?['id']==u['id'];
+                  final price=((u['sale_price_minor'] as num?)?.toDouble()??0)/100;
+                  return OutlinedButton(
+                    style:OutlinedButton.styleFrom(
+                      padding:const EdgeInsets.all(3),
+                      backgroundColor:active?Theme.of(ctx).colorScheme.secondaryContainer:null),
+                    onPressed:()=>setLocal(()=>unit=u),
+                    child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                      Text(u['unit_name'].toString(),maxLines:1,overflow:TextOverflow.ellipsis,
+                        style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12)),
+                      Text(price.toStringAsFixed(2),style:Theme.of(ctx).textTheme.labelSmall),
+                    ]));
+                })),
+          ])),
+          const SizedBox(height:5),
+          SizedBox(width:double.infinity,child:FilledButton.icon(
+            onPressed:productId==null||unit==null?null:(){
+              final n=double.tryParse(qty.replaceAll(',','.'))??0;
+              if(n<=0){message(tr3('أدخل كمية صحيحة','Enter a valid quantity','Saisissez une quantité valide'));return;}
+              final p=available.firstWhere((p)=>p['id']==productId);final u=unit!;
+              basket.add({'product_id':productId,'product_name':p['name'],'unit_name':u['unit_name'],
+                'factor_to_base':u['factor_to_base'],'quantity':n,'unit_price_minor':u['sale_price_minor']??0});
+              qty='';unit=null;setLocal((){});
+            },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart')))),
+          const Divider(height:10),
+          Align(alignment:AlignmentDirectional.centerStart,child:Text(t('cart')+' ('+basket.length.toString()+')')),
+          Expanded(flex:2,child:ListView.builder(itemCount:basket.length,itemBuilder:(ctx,i){
+            final l=basket[i];final total=(l['quantity'] as num)*(l['unit_price_minor'] as num)/100;
+            return ListTile(dense:true,contentPadding:EdgeInsets.zero,title:Text(l['product_name'].toString()),
+              subtitle:Text(l['quantity'].toString()+' × '+l['unit_name'].toString()),
+              trailing:Row(mainAxisSize:MainAxisSize.min,children:[Text(total.toStringAsFixed(2)),
+                IconButton(icon:const Icon(Icons.close),onPressed:()=>setLocal(()=>basket.removeAt(i)))]));
+          })),
+          SizedBox(width:double.infinity,child:FilledButton(onPressed:basket.isEmpty?null:()async{
+            try{
+              final customer=customers.firstWhere((c)=>c['id']==customerId);
+              final id=await db.createDocument(kind:'issue',partyType:'customer',partyId:customerId!,
+                partyName:customer['name'] as String,createdBy:1,lines:basket.map((e)=>Map<String,Object?>.from(e)).toList());
+              await db.submitDocument(documentId:id,userId:1);
+              if(ctx.mounted)Navigator.pop(ctx);await refresh();message(t('sent'));
+            }catch(e){message(e.toString());}
+          },child:Text(t('submit')))),
+        ]))))),
+    ));
+  }
+
+  Future<void> _openReceiptTransaction({required bool receiving,Map<String,Object?>? selectedProduct}) async {
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
     final productRows=await db.listProducts();
@@ -329,8 +480,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
     List<Map<String,Object?>> units=await db.listUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
-    final quantity=TextEditingController(text:'1');
-    final price=TextEditingController(text:'0');
+    final quantity=TextEditingController();
+    final price=TextEditingController();
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
@@ -353,7 +504,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
           onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
         const SizedBox(height:10),
-        TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
+        TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'),hintText:'0')),
         const SizedBox(height:8),
         GridView.count(
           crossAxisCount:3,
@@ -427,6 +578,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           final unit=units.firstWhere((u)=>u['id']==unitId);
           final q=double.tryParse(quantity.text.replaceAll(',','.'))??0;
           if(q<=0)return;
+          final enteredPrice=double.tryParse(price.text.replaceAll(',','.'));
+          if(receiving&&(enteredPrice==null||!enteredPrice.isFinite||enteredPrice<=0)){
+            message(tr3('سعر الشراء إلزامي ويجب أن يكون أكبر من صفر','Purchase price is required and must be greater than zero','Le prix d’achat est obligatoire et doit être supérieur à zéro'));return;
+          }
           final lineFactor=(unit['factor_to_base'] as num).toDouble();
           if(receiving&&expirySplits.isNotEmpty){
             final splitBase=expirySplits.fold<double>(0,(sum,s)=>
@@ -440,9 +595,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             'product_id':productId,'product_name':product['name'],
             'unit_name':unit['unit_name'],'factor_to_base':lineFactor,
             'expiry_splits':receiving?expirySplits.map((s)=>Map<String,Object?>.from(s)).toList():null,
-            'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
+            'quantity':q,'unit_price_minor':((double.tryParse(price.text.replaceAll(',','.'))??0)*100).round(),
           });
-          quantity.text='1';
+          quantity.clear();
           expirySplits.clear(); expiryQty.text='1';
           setLocal((){});
         },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart'))),
@@ -744,7 +899,95 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     }
   }
 
-  String money(Object? minor) => ((minor as num?)?.toDouble() ?? 0).toStringAsFixed(2);
+  String money(Object? minor) => (((minor as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2);
+
+  Future<Uint8List> buildDocumentPdf(int documentId) async {
+    await SragFonts.load();
+    final result=await db.documentDetails(documentId);
+    final doc=result['document'] as Map<String,Object?>;
+    final lines=result['lines'] as List<Map<String,Object?>>;
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
+    final isReceipt=doc['kind']=='receipt';
+    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
+      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
+        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
+          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
+          pw.SizedBox(height:10),
+          pw.Text('رقم السند: ${doc['document_no']}'),
+          pw.Text('التاريخ: ${doc['created_at']}'),
+          pw.Text('${isReceipt?'المورد':'العميل / الجهة'}: ${doc['party_name_snapshot']??''}'),
+          pw.SizedBox(height:10),
+          pw.Table(border:pw.TableBorder.all(),children:[
+            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:9)))).toList()),
+            ...lines.map((line)=>pw.TableRow(children:[
+              '${line['product_name_snapshot']}','${line['entered_quantity']}','${line['unit_name_snapshot']}',
+              money(line['unit_price_minor']),money((line['entered_quantity'] as num)*(line['unit_price_minor'] as num)),
+            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:const pw.TextStyle(fontSize:9)))).toList())),
+          ]),
+          pw.SizedBox(height:10),
+          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:14))),
+        ],
+      )),
+    ]));
+    return pdf.save();
+  }
+
+  Future<Uint8List> buildStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    await SragFonts.load();
+    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
+    final entries=statement['entries'] as List<Map<String,Object?>>;
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
+    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
+      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
+        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
+          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
+          pw.Text('الطرف: ${party['name']}'),
+          pw.Text('تاريخ الطباعة: ${DateTime.now().toIso8601String()}'),
+          pw.SizedBox(height:10),
+          pw.Table(border:pw.TableBorder.all(),children:[
+            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:8)))).toList()),
+            ...entries.map((e)=>pw.TableRow(children:[
+              '${e['document_no']}','${e['entry_date']}',money(e['debit_minor']),money(e['credit_minor']),money(e['balance_minor']),
+            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:const pw.TextStyle(fontSize:8)))).toList())),
+          ]),
+          pw.SizedBox(height:10),
+          pw.Text('إجمالي الفواتير: ${money(statement['total_debit_minor'])}'),
+          pw.Text('إجمالي المرتجعات: ${money(statement['total_returned_minor'])}'),
+          pw.Text('إجمالي الدفعات: ${money(statement['total_paid_minor'])}'),
+          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:13)),
+        ],
+      )),
+    ]));
+    return pdf.save();
+  }
+
+  Future<void> shareDocumentPdf(int id) async {
+    final bytes=await buildDocumentPdf(id);
+    final result=await db.documentDetails(id);
+    final doc=result['document'] as Map<String,Object?>;
+    await Printing.sharePdf(bytes:bytes,filename:'${doc['document_no']}.pdf');
+  }
+
+  Future<void> printDocumentPdf(int id) async {
+    final bytes=await buildDocumentPdf(id);
+    final result=await db.documentDetails(id);
+    final doc=result['document'] as Map<String,Object?>;
+    await Printing.layoutPdf(name:'${doc['document_no']}.pdf',onLayout:(_)=>bytes);
+  }
+
+  Future<void> shareStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    final bytes=await buildStatementPdf(supplier:supplier,statement:statement);
+    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
+    await Printing.sharePdf(bytes:bytes,filename:'statement-${party['name']}.pdf');
+  }
+
+  Future<void> printStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    final bytes=await buildStatementPdf(supplier:supplier,statement:statement);
+    await Printing.layoutPdf(name:supplier?'supplier-statement.pdf':'customer-statement.pdf',onLayout:(_)=>bytes);
+  }
+
 
   Future<void> showDocuments({String? kind}) async {
     final docs=await db.listDocuments(kind:kind);
@@ -796,7 +1039,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           Text('${tr3('الإجمالي','Total','Total')}: ${money(doc['total_minor'])}',style:const TextStyle(fontWeight:FontWeight.bold)),
         ],
       ))),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel')))],
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel'))),
+        IconButton(tooltip:tr3('طباعة','Print','Imprimer'),onPressed:()=>printDocumentPdf(id),icon:const Icon(Icons.print)),
+        IconButton(tooltip:tr3('مشاركة PDF','Share PDF','Partager PDF'),onPressed:()=>shareDocumentPdf(id),icon:const Icon(Icons.share)),
+      ],
     ));
   }
 
@@ -825,25 +1072,41 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 Expanded(child:Text('${tr3('إجمالي المستحق','Total issued','Total dû')}: ${money(statement!['total_debit_minor'])}')),
                 Expanded(child:Text('${tr3('المدفوع','Paid','Payé')}: ${money(statement!['total_paid_minor'])}')),
               ]),
+              Row(children:[
+                Expanded(child:Text('${tr3('المرتجعات','Returns','Retours')}: ${money(statement!['total_returned_minor'])}')),
+              ]),
               const SizedBox(height:6),
               Text('${tr3('الرصيد المتبقي','Balance due','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              Text((statement!['balance_minor'] as num).toDouble()>=0
+                ?tr3('حالة الحساب: العميل مدين','Account status: customer owes','Statut : le client est débiteur')
+                :tr3('حالة الحساب: رصيد دائن للعميل','Account status: credit owed to customer','Statut : solde créditeur du client'),
+                style:Theme.of(ctx).textTheme.bodySmall),
               const SizedBox(height:8),
               SizedBox(width:double.infinity,child:FilledButton.icon(
                 onPressed:() async { await recordCustomerPayment(selected!,ctx); final updated=await db.customerStatement(selected!); setSheet((){statement=updated;}); },
                 icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة','Record payment','Enregistrer un paiement')),
               )),
+              Row(children:[
+                Expanded(child:OutlinedButton.icon(onPressed:()=>printStatementPdf(supplier:false,statement:statement!),icon:const Icon(Icons.print),label:Text(tr3('طباعة الكشف','Print statement','Imprimer')))),
+                const SizedBox(width:8),
+                Expanded(child:OutlinedButton.icon(onPressed:()=>shareStatementPdf(supplier:false,statement:statement!),icon:const Icon(Icons.share),label:Text(tr3('مشاركة PDF','Share PDF','Partager PDF')))),
+              ]),
               const Divider(),
               Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
                 ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
                 :ListView.builder(itemCount:(statement!['entries'] as List).length,itemBuilder:(ctx,i){
                   final e=(statement!['entries'] as List<Map<String,Object?>>)[i];
                   final payment=e['entry_type']=='payment';
+                  final isReturn=e['entry_type']=='return_in';
+                  final credit=payment||isReturn;
+                  final label=payment?tr3('دفعة','Payment','Paiement')
+                    :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):tr3('فاتورة صرف','Issue invoice','Facture de sortie'));
                   return ListTile(
-                    dense:true,leading:Icon(payment?Icons.payments:Icons.receipt_long),
-                    title:Text('${e['document_no']} · ${payment?tr3('دفعة','Payment','Paiement'):tr3('فاتورة صرف','Issue invoice','Facture de sortie')}'),
+                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    title:Text('${e['document_no']} · $label'),
                     subtitle:Text('${e['entry_date']} · ${e['status']}'),
                     trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                      Text(payment?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
                       Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
                     ]),
                   );
@@ -853,6 +1116,107 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ))),
       )),
     );
+  }
+
+
+  Future<void> showSupplierAccounts() async {
+    final suppliers=await db.listParties('suppliers');
+    if(suppliers.isEmpty){message(tr3('أضف مورداً أولاً','Add a supplier first','Ajoutez d’abord un fournisseur'));return;}
+    int? selected=suppliers.first['id'] as int;
+    Map<String,Object?>? statement=await db.supplierStatement(selected);
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
+        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.82,
+          child:Column(children:[
+            Text(tr3('كشف حساب المورد','Supplier statement','Relevé du fournisseur'),style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:10),
+            DropdownButtonFormField<int>(
+              value:selected,decoration:InputDecoration(labelText:t('supplier')),
+              items:suppliers.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
+              onChanged:(v) async {if(v==null)return;final s=await db.supplierStatement(v);setSheet((){selected=v;statement=s;});},
+            ),
+            if(statement!=null)...[
+              const SizedBox(height:10),
+              Row(children:[
+                Expanded(child:Text('${tr3('إجمالي التوريد','Total receipts','Total des réceptions')}: ${money(statement!['total_debit_minor'])}')),
+                Expanded(child:Text('${tr3('المدفوع','Paid','Payé')}: ${money(statement!['total_paid_minor'])}')),
+              ]),
+              Row(children:[
+                Expanded(child:Text('${tr3('مرتجعات المورد','Supplier returns','Retours fournisseur')}: ${money(statement!['total_returned_minor'])}')),
+              ]),
+              const SizedBox(height:6),
+              Text('${tr3('الرصيد المتبقي','Outstanding balance','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              Text((statement!['balance_minor'] as num).toDouble()>=0
+                ?tr3('حالة الحساب: رصيد دائن للمورد (مستحق علينا)','Account status: payable to supplier','Statut : dette envers le fournisseur')
+                :tr3('حالة الحساب: رصيد مدين للمورد','Account status: supplier owes us','Statut : le fournisseur nous doit'),
+                style:Theme.of(ctx).textTheme.bodySmall),
+              const SizedBox(height:8),
+              SizedBox(width:double.infinity,child:FilledButton.icon(
+                onPressed:() async {await recordSupplierPayment(selected!,ctx);final updated=await db.supplierStatement(selected!);setSheet((){statement=updated;});},
+                icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة للمورد','Record supplier payment','Enregistrer un paiement fournisseur')),
+              )),
+              Row(children:[
+                Expanded(child:OutlinedButton.icon(onPressed:()=>printStatementPdf(supplier:true,statement:statement!),icon:const Icon(Icons.print),label:Text(tr3('طباعة الكشف','Print statement','Imprimer')))),
+                const SizedBox(width:8),
+                Expanded(child:OutlinedButton.icon(onPressed:()=>shareStatementPdf(supplier:true,statement:statement!),icon:const Icon(Icons.share),label:Text(tr3('مشاركة PDF','Share PDF','Partager PDF')))),
+              ]),
+              const Divider(),
+              Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
+                ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
+                :ListView.builder(itemCount:(statement!['entries'] as List).length,itemBuilder:(ctx,i){
+                  final e=(statement!['entries'] as List<Map<String,Object?>>)[i];
+                  final credit=(e['credit_minor'] as num).round()>0;
+                  final isPayment=e['entry_type']=='payment';
+                  final label=isPayment?tr3('دفعة للمورد','Payment to supplier','Paiement fournisseur')
+                    :(e['entry_type']=='return_out'?tr3('مرتجع مورد','Supplier return','Retour fournisseur'):tr3('فاتورة توريد','Receipt invoice','Facture de réception'));
+                  return ListTile(
+                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    title:Text('${e['document_no']} · $label'),
+                    subtitle:Text('${e['entry_date']} · ${e['status']}'),
+                    trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
+                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
+                    ]),
+                  );
+                })),
+            ],
+          ]),
+        ))),
+      )),
+    );
+  }
+
+  Future<void> recordSupplierPayment(int supplierId, BuildContext sheetContext) async {
+    final amount=TextEditingController();
+    final reference=TextEditingController();
+    final notes=TextEditingController();
+    String method='cash';
+    final ok=await showDialog<bool>(context:context,builder:(d)=>StatefulBuilder(builder:(d,setLocal)=>AlertDialog(
+      title:Text(tr3('تسجيل دفعة للمورد','Record supplier payment','Enregistrer un paiement fournisseur')),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('المبلغ','Amount','Montant'))),
+        const SizedBox(height:8),
+        DropdownButtonFormField<String>(value:method,decoration:InputDecoration(labelText:tr3('طريقة الدفع','Payment method','Mode de paiement')),
+          items:[DropdownMenuItem(value:'cash',child:Text(tr3('نقداً','Cash','Espèces'))),DropdownMenuItem(value:'bank',child:Text(tr3('تحويل بنكي','Bank transfer','Virement'))),DropdownMenuItem(value:'other',child:Text(tr3('أخرى','Other','Autre')))],
+          onChanged:(v)=>setLocal(()=>method=v??'cash')),
+        const SizedBox(height:8),
+        TextField(controller:reference,decoration:InputDecoration(labelText:tr3('رقم المرجع','Reference','Référence'))),
+        const SizedBox(height:8),
+        TextField(controller:notes,decoration:InputDecoration(labelText:tr3('ملاحظات','Notes','Notes'))),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
+    )));
+    if(ok==true){
+      final value=double.tryParse(amount.text.replaceAll(',','.'))??0;
+      if(value<=0){message(tr3('أدخل مبلغاً صحيحاً','Enter a valid amount','Saisissez un montant valide'));return;}
+      await db.addSupplierPayment(supplierId:supplierId,amountMinor:(value*100).round(),
+        paymentDate:DateTime.now().toIso8601String(),method:method,
+        referenceNo:reference.text,notes:notes.text);
+      if(sheetContext.mounted){message(tr3('تم تسجيل الدفعة','Payment recorded','Paiement enregistré'));}
+    }
   }
 
   Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext) async {
