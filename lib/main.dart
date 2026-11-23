@@ -1,4 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/wms_database.dart';
 
@@ -896,6 +901,94 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   String money(Object? minor) => (((minor as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2);
 
+  Future<Uint8List> buildDocumentPdf(int documentId) async {
+    await SragFonts.load();
+    final result=await db.documentDetails(documentId);
+    final doc=result['document'] as Map<String,Object?>;
+    final lines=result['lines'] as List<Map<String,Object?>>;
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:almaraiRegular,bold:almaraiBold));
+    final isReceipt=doc['kind']=='receipt';
+    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
+      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
+        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:almaraiBold,fontSize:20))),
+          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:almaraiBold,fontSize:16))),
+          pw.SizedBox(height:10),
+          pw.Text('رقم السند: ${doc['document_no']}'),
+          pw.Text('التاريخ: ${doc['created_at']}'),
+          pw.Text('${isReceipt?'المورد':'العميل / الجهة'}: ${doc['party_name_snapshot']??''}'),
+          pw.SizedBox(height:10),
+          pw.Table(border:pw.TableBorder.all(),children:[
+            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:almaraiBold,fontSize:9)))).toList()),
+            ...lines.map((line)=>pw.TableRow(children:[
+              '${line['product_name_snapshot']}','${line['entered_quantity']}','${line['unit_name_snapshot']}',
+              money(line['unit_price_minor']),money((line['entered_quantity'] as num)*(line['unit_price_minor'] as num)),
+            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:const pw.TextStyle(fontSize:9)))).toList())),
+          ]),
+          pw.SizedBox(height:10),
+          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:almaraiBold,fontSize:14))),
+        ],
+      )),
+    ]));
+    return pdf.save();
+  }
+
+  Future<Uint8List> buildStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    await SragFonts.load();
+    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
+    final entries=statement['entries'] as List<Map<String,Object?>>;
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:almaraiRegular,bold:almaraiBold));
+    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
+      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
+        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:almaraiBold,fontSize:20))),
+          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:almaraiBold,fontSize:16))),
+          pw.Text('الطرف: ${party['name']}'),
+          pw.Text('تاريخ الطباعة: ${DateTime.now().toIso8601String()}'),
+          pw.SizedBox(height:10),
+          pw.Table(border:pw.TableBorder.all(),children:[
+            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:almaraiBold,fontSize:8)))).toList()),
+            ...entries.map((e)=>pw.TableRow(children:[
+              '${e['document_no']}','${e['entry_date']}',money(e['debit_minor']),money(e['credit_minor']),money(e['balance_minor']),
+            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:const pw.TextStyle(fontSize:8)))).toList())),
+          ]),
+          pw.SizedBox(height:10),
+          pw.Text('إجمالي الفواتير: ${money(statement['total_debit_minor'])}'),
+          pw.Text('إجمالي المرتجعات: ${money(statement['total_returned_minor'])}'),
+          pw.Text('إجمالي الدفعات: ${money(statement['total_paid_minor'])}'),
+          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:almaraiBold,fontSize:13)),
+        ],
+      )),
+    ]));
+    return pdf.save();
+  }
+
+  Future<void> shareDocumentPdf(int id) async {
+    final bytes=await buildDocumentPdf(id);
+    final result=await db.documentDetails(id);
+    final doc=result['document'] as Map<String,Object?>;
+    await Printing.sharePdf(bytes:bytes,filename:'${doc['document_no']}.pdf');
+  }
+
+  Future<void> printDocumentPdf(int id) async {
+    final bytes=await buildDocumentPdf(id);
+    final result=await db.documentDetails(id);
+    final doc=result['document'] as Map<String,Object?>;
+    await Printing.layoutPdf(name:'${doc['document_no']}.pdf',onLayout:(_)=>bytes);
+  }
+
+  Future<void> shareStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    final bytes=await buildStatementPdf(supplier:supplier,statement:statement);
+    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
+    await Printing.sharePdf(bytes:bytes,filename:'statement-${party['name']}.pdf');
+  }
+
+  Future<void> printStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+    final bytes=await buildStatementPdf(supplier:supplier,statement:statement);
+    await Printing.layoutPdf(name:supplier?'supplier-statement.pdf':'customer-statement.pdf',onLayout:(_)=>bytes);
+  }
+
+
   Future<void> showDocuments({String? kind}) async {
     final docs=await db.listDocuments(kind:kind);
     if(!mounted)return;
@@ -946,7 +1039,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           Text('${tr3('الإجمالي','Total','Total')}: ${money(doc['total_minor'])}',style:const TextStyle(fontWeight:FontWeight.bold)),
         ],
       ))),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel')))],
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(ctx),child:Text(t('cancel'))),
+        IconButton(tooltip:tr3('طباعة','Print','Imprimer'),onPressed:()=>printDocumentPdf(id),icon:const Icon(Icons.print)),
+        IconButton(tooltip:tr3('مشاركة PDF','Share PDF','Partager PDF'),onPressed:()=>shareDocumentPdf(id),icon:const Icon(Icons.share)),
+      ],
     ));
   }
 
@@ -989,6 +1086,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 onPressed:() async { await recordCustomerPayment(selected!,ctx); final updated=await db.customerStatement(selected!); setSheet((){statement=updated;}); },
                 icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة','Record payment','Enregistrer un paiement')),
               )),
+              Row(children:[
+                Expanded(child:OutlinedButton.icon(onPressed:()=>printStatementPdf(supplier:false,statement:statement!),icon:const Icon(Icons.print),label:Text(tr3('طباعة الكشف','Print statement','Imprimer')))),
+                const SizedBox(width:8),
+                Expanded(child:OutlinedButton.icon(onPressed:()=>shareStatementPdf(supplier:false,statement:statement!),icon:const Icon(Icons.share),label:Text(tr3('مشاركة PDF','Share PDF','Partager PDF')))),
+              ]),
               const Divider(),
               Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
                 ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
@@ -1056,6 +1158,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 onPressed:() async {await recordSupplierPayment(selected!,ctx);final updated=await db.supplierStatement(selected!);setSheet((){statement=updated;});},
                 icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة للمورد','Record supplier payment','Enregistrer un paiement fournisseur')),
               )),
+              Row(children:[
+                Expanded(child:OutlinedButton.icon(onPressed:()=>printStatementPdf(supplier:true,statement:statement!),icon:const Icon(Icons.print),label:Text(tr3('طباعة الكشف','Print statement','Imprimer')))),
+                const SizedBox(width:8),
+                Expanded(child:OutlinedButton.icon(onPressed:()=>shareStatementPdf(supplier:true,statement:statement!),icon:const Icon(Icons.share),label:Text(tr3('مشاركة PDF','Share PDF','Partager PDF')))),
+              ]),
               const Divider(),
               Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
                 ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
