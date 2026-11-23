@@ -267,7 +267,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final name = TextEditingController();
     final base = TextEditingController(text: lang == 'ar' ? 'حبة' : 'piece');
     final units = TextEditingController();
-    final baseSalePrice = TextEditingController(text:'0');
+    final baseSalePrice = TextEditingController();
     String mode = 'count';
     final result = await showDialog<bool>(context:context, builder:(ctx) => StatefulBuilder(
       builder:(ctx,setLocal) => AlertDialog(
@@ -299,14 +299,18 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final unitRows=<Map<String,Object?>>[
       {'unit_name':base.text.trim(),'factor_to_base':1.0,'sale_price_minor':((double.tryParse(baseSalePrice.text.replaceAll(',','.'))??0)*100).round()}
     ];
+    final parsedBasePrice=double.tryParse(baseSalePrice.text.replaceAll(',','.'));
+    if(parsedBasePrice==null||!parsedBasePrice.isFinite||parsedBasePrice<=0){
+      message(tr3('أدخل سعر بيع صحيحاً لوحدة الأساس','Enter a valid base-unit sale price','Saisissez un prix de vente valide pour l’unité de base'));return;
+    }
     try {
       for (final part in units.text.split(',')) {
         if (part.trim().isEmpty) continue;
         final bits=part.split('=');
-        if ((bits.length!=2 && bits.length!=3) || bits[0].trim().isEmpty) throw FormatException();
+        if (bits.length!=3 || bits[0].trim().isEmpty) throw FormatException();
         final factor=double.parse(bits[1].trim().replaceAll(',', '.'));
-        final unitPrice=bits.length==3 ? double.parse(bits[2].trim().replaceAll(',', '.')) : 0.0;
-        if(unitPrice<0) throw FormatException();
+        final unitPrice=double.parse(bits[2].trim().replaceAll(',', '.'));
+        if(!factor.isFinite||factor<=0||!unitPrice.isFinite||unitPrice<=0) throw FormatException();
         unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor,'sale_price_minor':(unitPrice*100).round()});
       }
       await db.saveProduct(name:name.text,baseUnit:base.text,trackingMode:mode,units:unitRows);
@@ -470,7 +474,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     List<Map<String,Object?>> units=await db.listUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController();
-    final price=TextEditingController(text:'0');
+    final price=TextEditingController();
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
@@ -567,6 +571,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           final unit=units.firstWhere((u)=>u['id']==unitId);
           final q=double.tryParse(quantity.text.replaceAll(',','.'))??0;
           if(q<=0)return;
+          final enteredPrice=double.tryParse(price.text.replaceAll(',','.'));
+          if(receiving&&(enteredPrice==null||!enteredPrice.isFinite||enteredPrice<=0)){
+            message(tr3('سعر الشراء إلزامي ويجب أن يكون أكبر من صفر','Purchase price is required and must be greater than zero','Le prix d’achat est obligatoire et doit être supérieur à zéro'));return;
+          }
           final lineFactor=(unit['factor_to_base'] as num).toDouble();
           if(receiving&&expirySplits.isNotEmpty){
             final splitBase=expirySplits.fold<double>(0,(sum,s)=>
@@ -580,7 +588,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             'product_id':productId,'product_name':product['name'],
             'unit_name':unit['unit_name'],'factor_to_base':lineFactor,
             'expiry_splits':receiving?expirySplits.map((s)=>Map<String,Object?>.from(s)).toList():null,
-            'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
+            'quantity':q,'unit_price_minor':((double.tryParse(price.text.replaceAll(',','.'))??0)*100).round(),
           });
           quantity.clear();
           expirySplits.clear(); expiryQty.text='1';
