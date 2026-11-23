@@ -457,9 +457,16 @@ extension WmsCatalogOperations on WmsDatabase {
         final productId = line['product_id'] as int;
         final productRows = await txn.query('products', where: 'id=?', whereArgs: [productId], limit: 1);
         if (productRows.isEmpty) throw StateError('Product not found');
+        final unitName = (line['unit_name'] as String?)?.trim() ?? '';
+        final unitRows = await txn.query('product_units',
+          where:'product_id=? AND unit_name=? AND is_active=1',
+          whereArgs:[productId,unitName],limit:1);
+        if(unitRows.isEmpty) throw StateError('Unit is not defined for this product: $unitName');
+        final factor = (unitRows.first['factor_to_base'] as num).toDouble();
         final qty = (line['quantity'] as num).toDouble();
-        final factor = (line['factor_to_base'] as num).toDouble();
-        if (qty <= 0 || factor <= 0) throw ArgumentError('Quantity and unit factor must be positive');
+        if (!qty.isFinite || qty <= 0 || !factor.isFinite || factor <= 0) {
+          throw ArgumentError('Quantity and saved product unit must be valid');
+        }
         final baseQty=convertToBaseQuantity(enteredQuantity:qty,factorToBase:factor);
         final lineId=await txn.insert('document_lines',{
           'document_id':docId,'product_id':productId,
@@ -477,10 +484,10 @@ extension WmsCatalogOperations on WmsDatabase {
           var sumBase=0.0;
           for(final split in splits){
             final splitQty=(split['quantity'] as num).toDouble();
-            final splitFactor=(split['factor_to_base'] as num?)?.toDouble()??factor;
-            final splitUnit=(split['unit_name'] as String?)??(line['unit_name'] as String);
+            final splitFactor=factor;
+            final splitUnit=unitName;
             final expiry=split['expiry_date'] as String?;
-            if(splitQty<=0||splitFactor<=0) throw ArgumentError('Expiry split quantity and factor must be positive');
+            if(!splitQty.isFinite||splitQty<=0) throw ArgumentError('Expiry split quantity must be positive');
             if(expiry!=null&&DateTime.tryParse(expiry)==null) throw ArgumentError('Expiry date must use YYYY-MM-DD');
             final splitBase=convertToBaseQuantity(enteredQuantity:splitQty,factorToBase:splitFactor);
             sumBase+=splitBase;
