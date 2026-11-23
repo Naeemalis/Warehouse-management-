@@ -318,8 +318,6 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController(text:'1');
     final price=TextEditingController(text:'0');
-    final factor=TextEditingController(text: units.isEmpty ? '1' : '${units.first['factor_to_base']}');
-    final packaging=TextEditingController();
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
@@ -335,12 +333,12 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:productId,decoration:InputDecoration(labelText:t('product')),
           items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; factor.text=u.isEmpty?'1':'${u.first['factor_to_base']}'; expirySplits.clear(); }); }),
+          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; factor.text='${u['factor_to_base']}'; expirySplits.clear(); }); }),
+          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
         const SizedBox(height:8),
@@ -368,10 +366,6 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ),
         if(receiving) ...[
           const SizedBox(height:10),
-          TextField(controller:factor,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('معامل التحويل إلى وحدة الأساس','Conversion factor to base unit','Facteur de conversion vers l’unité de base'))),
-          const SizedBox(height:8),
-          TextField(controller:packaging,decoration:InputDecoration(labelText:tr3('تفاصيل التعبئة الفعلية','Actual packaging details','Détails réels de l’emballage'),hintText:tr3('مثال: 4 بواكت × 6 حبات','e.g. 4 packs × 6 pieces','ex. : 4 paquets × 6 pièces'))),
-          const SizedBox(height:8),
           Row(children:[
             Expanded(child:TextField(controller:expiryQty,keyboardType:const TextInputType.numberWithOptions(decimal:true),
               decoration:InputDecoration(labelText:tr3('كمية تاريخ الصلاحية','Quantity for expiry date','Quantité pour date d’expiration')))),
@@ -384,13 +378,14 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               );
               if(picked==null)return;
               final splitQty=double.tryParse(expiryQty.text.replaceAll(',','.'))??0;
-              final splitFactor=double.tryParse(factor.text.replaceAll(',','.'))??0;
-              if(splitQty<=0||splitFactor<=0){message(tr3('أدخل كمية ومعامل تحويل صحيحين','Enter a valid quantity and conversion factor','Saisissez une quantité et un facteur valides'));return;}
+              final selectedUnit=units.firstWhere((u)=>u['id']==unitId);
+              final splitFactor=(selectedUnit['factor_to_base'] as num).toDouble();
+              if(splitQty<=0){message(tr3('أدخل كمية صحيحة','Enter a valid quantity','Saisissez une quantité valide'));return;}
               setLocal((){
                 expirySplits.add({
                   'expiry_date':picked.toIso8601String().substring(0,10),
                   'quantity':splitQty,
-                  'unit_name':units.firstWhere((u)=>u['id']==unitId)['unit_name'],
+                  'unit_name':selectedUnit['unit_name'],
                   'factor_to_base':splitFactor,
                 });
                 expiryQty.text='1';
@@ -419,8 +414,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           final unit=units.firstWhere((u)=>u['id']==unitId);
           final q=double.tryParse(quantity.text.replaceAll(',','.'))??0;
           if(q<=0)return;
-          final lineFactor=receiving?(double.tryParse(factor.text.replaceAll(',','.'))??0):(unit['factor_to_base'] as num).toDouble();
-          if(receiving&&lineFactor<=0){message(t('badUnits'));return;}
+          final lineFactor=(unit['factor_to_base'] as num).toDouble();
           if(receiving&&expirySplits.isNotEmpty){
             final splitBase=expirySplits.fold<double>(0,(sum,s)=>
               sum+(s['quantity'] as num).toDouble()*(s['factor_to_base'] as num).toDouble());
@@ -432,7 +426,6 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           basket.add({
             'product_id':productId,'product_name':product['name'],
             'unit_name':unit['unit_name'],'factor_to_base':lineFactor,
-            'packaging_note':receiving?packaging.text:null,
             'expiry_splits':receiving?expirySplits.map((s)=>Map<String,Object?>.from(s)).toList():null,
             'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
           });
