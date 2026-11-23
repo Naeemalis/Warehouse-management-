@@ -381,8 +381,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           ]),
           SizedBox(height:142,child:Row(children:[
             Expanded(flex:3,child:GridView.count(
-              crossAxisCount:3,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
-              mainAxisSpacing:4,crossAxisSpacing:4,childAspectRatio:1.7,
+              crossAxisCount:4,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+              mainAxisSpacing:4,crossAxisSpacing:4,childAspectRatio:1.5,
               children:['1','2','3','4','5','6','7','8','9','½','0','¼','⌫','.'].map((k)=>
                 OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero),
                   onPressed:()=>setLocal((){
