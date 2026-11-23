@@ -167,6 +167,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             onSelected: (v) {
               if(v=='docs') showDocuments();
               else if(v=='statement') showCustomerAccounts();
+              else if(v=='supplierStatement') showSupplierAccounts();
               else if(v=='issues') showDocuments(kind:'issue');
               else if(v=='parties') manageParties();
               else if(v=='deliveries') showDeliveries();
@@ -176,6 +177,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             itemBuilder: (_) => [
               PopupMenuItem(value:'docs',child:Text(tr3('الفواتير','Invoices','Factures'))),
               PopupMenuItem(value:'statement',child:Text(tr3('كشف حساب عميل والدفعات','Customer statement & payments','Relevé client et paiements'))),
+              PopupMenuItem(value:'supplierStatement',child:Text(tr3('كشف حساب المورد والدفعات','Supplier statement & payments','Relevé fournisseur et paiements'))),
               PopupMenuItem(value:'issues',child:Text(tr3('سجل المنصرف','Issue register','Registre des sorties'))),
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
@@ -973,6 +975,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 Expanded(child:Text('${tr3('إجمالي المستحق','Total issued','Total dû')}: ${money(statement!['total_debit_minor'])}')),
                 Expanded(child:Text('${tr3('المدفوع','Paid','Payé')}: ${money(statement!['total_paid_minor'])}')),
               ]),
+              Row(children:[
+                Expanded(child:Text('${tr3('المرتجعات','Returns','Retours')}: ${money(statement!['total_returned_minor'])}')),
+              ]),
               const SizedBox(height:6),
               Text('${tr3('الرصيد المتبقي','Balance due','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
               const SizedBox(height:8),
@@ -1001,6 +1006,98 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ))),
       )),
     );
+  }
+
+
+  Future<void> showSupplierAccounts() async {
+    final suppliers=await db.listParties('suppliers');
+    if(suppliers.isEmpty){message(tr3('أضف مورداً أولاً','Add a supplier first','Ajoutez d’abord un fournisseur'));return;}
+    int? selected=suppliers.first['id'] as int;
+    Map<String,Object?>? statement=await db.supplierStatement(selected);
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
+        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.82,
+          child:Column(children:[
+            Text(tr3('كشف حساب المورد','Supplier statement','Relevé du fournisseur'),style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:10),
+            DropdownButtonFormField<int>(
+              value:selected,decoration:InputDecoration(labelText:t('supplier')),
+              items:suppliers.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('\${p['name']}'))).toList(),
+              onChanged:(v) async {if(v==null)return;final s=await db.supplierStatement(v);setSheet((){selected=v;statement=s;});},
+            ),
+            if(statement!=null)...[
+              const SizedBox(height:10),
+              Row(children:[
+                Expanded(child:Text('\${tr3('إجمالي التوريد','Total receipts','Total des réceptions')}: \${money(statement!['total_debit_minor'])}')),
+                Expanded(child:Text('\${tr3('المدفوع','Paid','Payé')}: \${money(statement!['total_paid_minor'])}')),
+              ]),
+              Row(children:[
+                Expanded(child:Text('\${tr3('مرتجعات المورد','Supplier returns','Retours fournisseur')}: \${money(statement!['total_returned_minor'])}')),
+              ]),
+              const SizedBox(height:6),
+              Text('\${tr3('الرصيد المتبقي','Outstanding balance','Solde restant')}: \${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              const SizedBox(height:8),
+              SizedBox(width:double.infinity,child:FilledButton.icon(
+                onPressed:() async {await recordSupplierPayment(selected!,ctx);final updated=await db.supplierStatement(selected!);setSheet((){statement=updated;});},
+                icon:const Icon(Icons.payments_outlined),label:Text(tr3('تسجيل دفعة للمورد','Record supplier payment','Enregistrer un paiement fournisseur')),
+              )),
+              const Divider(),
+              Expanded(child:(statement!['entries'] as List<Map<String,Object?>>).isEmpty
+                ?Center(child:Text(tr3('لا توجد حركات مالية','No account entries','Aucune opération')))
+                :ListView.builder(itemCount:(statement!['entries'] as List).length,itemBuilder:(ctx,i){
+                  final e=(statement!['entries'] as List<Map<String,Object?>>)[i];
+                  final credit=(e['credit_minor'] as num).round()>0;
+                  final isPayment=e['entry_type']=='payment';
+                  final label=isPayment?tr3('دفعة للمورد','Payment to supplier','Paiement fournisseur')
+                    :(e['entry_type']=='return_out'?tr3('مرتجع مورد','Supplier return','Retour fournisseur'):tr3('فاتورة توريد','Receipt invoice','Facture de réception'));
+                  return ListTile(
+                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    title:Text('\${e['document_no']} · $label'),
+                    subtitle:Text('\${e['entry_date']} · \${e['status']}'),
+                    trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
+                      Text(credit?'-\${money(e['credit_minor'])}':'+\${money(e['debit_minor'])}'),
+                      Text('\${tr3('الرصيد','Balance','Solde')}: \${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
+                    ]),
+                  );
+                })),
+            ],
+          ]),
+        ))),
+      )),
+    );
+  }
+
+  Future<void> recordSupplierPayment(int supplierId, BuildContext sheetContext) async {
+    final amount=TextEditingController();
+    final reference=TextEditingController();
+    final notes=TextEditingController();
+    String method='cash';
+    final ok=await showDialog<bool>(context:context,builder:(d)=>StatefulBuilder(builder:(d,setLocal)=>AlertDialog(
+      title:Text(tr3('تسجيل دفعة للمورد','Record supplier payment','Enregistrer un paiement fournisseur')),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:amount,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('المبلغ','Amount','Montant'))),
+        const SizedBox(height:8),
+        DropdownButtonFormField<String>(value:method,decoration:InputDecoration(labelText:tr3('طريقة الدفع','Payment method','Mode de paiement')),
+          items:[DropdownMenuItem(value:'cash',child:Text(tr3('نقداً','Cash','Espèces'))),DropdownMenuItem(value:'bank',child:Text(tr3('تحويل بنكي','Bank transfer','Virement'))),DropdownMenuItem(value:'other',child:Text(tr3('أخرى','Other','Autre')))],
+          onChanged:(v)=>setLocal(()=>method=v??'cash')),
+        const SizedBox(height:8),
+        TextField(controller:reference,decoration:InputDecoration(labelText:tr3('رقم المرجع','Reference','Référence'))),
+        const SizedBox(height:8),
+        TextField(controller:notes,decoration:InputDecoration(labelText:tr3('ملاحظات','Notes','Notes'))),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
+    )));
+    if(ok==true){
+      final value=double.tryParse(amount.text.replaceAll(',','.'))??0;
+      if(value<=0){message(tr3('أدخل مبلغاً صحيحاً','Enter a valid amount','Saisissez un montant valide'));return;}
+      await db.addSupplierPayment(supplierId:supplierId,amountMinor:(value*100).round(),
+        paymentDate:DateTime.now().toIso8601String(),method:method,
+        referenceNo:reference.text,notes:notes.text);
+      if(sheetContext.mounted){message(tr3('تم تسجيل الدفعة','Payment recorded','Paiement enregistré'));}
+    }
   }
 
   Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext) async {
