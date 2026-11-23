@@ -487,6 +487,10 @@ extension WmsCatalogOperations on WmsDatabase {
         if(unitRows.isEmpty) throw StateError('Unit is not defined for this product: $unitName');
         final factor = (unitRows.first['factor_to_base'] as num).toDouble();
         final qty = (line['quantity'] as num).toDouble();
+        final enteredPrice = (line['unit_price_minor'] as num?)?.round() ?? 0;
+        if (kind == 'receipt' && enteredPrice <= 0) {
+          throw ArgumentError('Purchase price is required and must be greater than zero');
+        }
         if (!qty.isFinite || qty <= 0 || !factor.isFinite || factor <= 0) {
           throw ArgumentError('Quantity and saved product unit must be valid');
         }
@@ -496,7 +500,7 @@ extension WmsCatalogOperations on WmsDatabase {
           'product_name_snapshot':productRows.first['name'],
           'unit_name_snapshot':line['unit_name'],
           'entered_quantity':qty,'factor_to_base_snapshot':factor,'base_quantity':baseQty,
-          'unit_price_minor':kind=='issue' ? (unitRows.first['sale_price_minor'] as num? ?? 0).round() : (line['unit_price_minor']??0),
+          'unit_price_minor':kind=='issue' ? (unitRows.first['sale_price_minor'] as num? ?? 0).round() : enteredPrice,
           'packaging_note':line['packaging_note'],'created_at':now,
         });
         if(kind=='receipt'){
