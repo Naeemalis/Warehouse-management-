@@ -5,7 +5,7 @@ on:
   push:
     branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier]
   pull_request:
-    branches: [main]
+    branches: [main, feature/wms-foundation]
 
 jobs:
   validate-and-build:
