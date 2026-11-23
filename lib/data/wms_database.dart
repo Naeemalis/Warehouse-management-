@@ -773,7 +773,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
       FROM supplier_payments WHERE supplier_id=?
     """, [supplierId]);
     final entries = [...docs, ...payments]
-      ..sort((a,b) => '\${a['entry_date']}'.compareTo('\${b['entry_date']}'));
+      ..sort((a,b) => '${a['entry_date']}'.compareTo('${b['entry_date']}'));
     var balance = 0;
     final ledger = <Map<String,Object?>>[];
     for (final entry in entries) {
@@ -814,7 +814,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
       FROM customer_payments WHERE customer_id=?
     """, [customerId]);
     final entries = [...docs, ...payments]
-      ..sort((a,b) => '\${a['entry_date']}'.compareTo('\${b['entry_date']}'));
+      ..sort((a,b) => '${a['entry_date']}'.compareTo('${b['entry_date']}'));
     var balance = 0;
     final ledger = <Map<String,Object?>>[];
     for (final entry in entries) {
