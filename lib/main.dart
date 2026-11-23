@@ -123,6 +123,19 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   String get lang => widget.language;
   String t(String key) => words[lang]?[key] ?? words['en']![key]!;
   String tr3(String ar, String en, String fr) => lang=='ar' ? ar : (lang=='fr' ? fr : en);
+  Color productStatusColor(Map<String,Object?> product) {
+    final stock=(product['stock_base'] as num?)?.toDouble() ?? 0;
+    final expiry=DateTime.tryParse(product['nearest_expiry_date']?.toString() ?? '');
+    final today=DateTime.now();
+    final todayDate=DateTime(today.year,today.month,today.day);
+    if(expiry!=null && !expiry.isAfter(todayDate)) return Colors.red.shade900;
+    if(expiry!=null && expiry.difference(todayDate).inDays<=30) return Colors.deepOrange;
+    if(stock<=0) return Colors.red;
+    final lastActivity=DateTime.tryParse(product['last_activity_at']?.toString() ?? '');
+    if(lastActivity!=null && todayDate.difference(DateTime(lastActivity.year,lastActivity.month,lastActivity.day)).inDays>=30) return Colors.deepPurple;
+    return Colors.green;
+  }
+
   bool get rtl => lang == 'ar';
 
   @override
@@ -212,7 +225,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                           onLongPress:()=>editProduct(p),
                           child:Padding(padding:const EdgeInsets.all(6),child:Column(
                             crossAxisAlignment:CrossAxisAlignment.start,children:[
-                              const Icon(Icons.inventory_2_outlined,size:22),const Spacer(),
+                              Icon(Icons.inventory_2_outlined,size:22,color:productStatusColor(p)),const Spacer(),
                               Text('${p['name']}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
                               const SizedBox(height:2),
                               Text('${p['stock_base']} ${p['base_unit_name']}',maxLines:1,overflow:TextOverflow.ellipsis,style:Theme.of(context).textTheme.labelSmall?.copyWith(fontSize:9)),
