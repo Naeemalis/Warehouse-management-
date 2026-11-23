@@ -267,6 +267,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final name = TextEditingController();
     final base = TextEditingController(text: lang == 'ar' ? 'حبة' : 'piece');
     final units = TextEditingController();
+    final baseSalePrice = TextEditingController(text:'0');
     String mode = 'count';
     final result = await showDialog<bool>(context:context, builder:(ctx) => StatefulBuilder(
       builder:(ctx,setLocal) => AlertDialog(
@@ -281,7 +282,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             items:[DropdownMenuItem(value:'count',child:Text(t('count'))),DropdownMenuItem(value:'weight',child:Text(t('weight'))),DropdownMenuItem(value:'volume',child:Text(t('volume')))],
             onChanged:(v)=>setLocal(()=>mode=v??'count')),
           const SizedBox(height:10),
-          TextField(controller:units, decoration:InputDecoration(labelText:t('units'),hintText:t('unitHint')), maxLines:2),
+          TextField(controller:baseSalePrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+            decoration:InputDecoration(labelText:tr3('سعر بيع وحدة الأساس','Base-unit sale price','Prix de vente de l’unité de base'))),
+          const SizedBox(height:10),
+          TextField(controller:units, decoration:InputDecoration(labelText:t('units'),
+            hintText:tr3('مثال: كرتون=24=500، باكت=6=120','Example: Carton=24=500, Pack=6=120','Exemple : Carton=24=500, Paquet=6=120')), maxLines:3),
           Align(alignment:AlignmentDirectional.centerStart, child:Text(t('baseNote'),style:Theme.of(ctx).textTheme.bodySmall)),
         ])),
         actions:[
@@ -292,15 +297,17 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if (result != true) return;
     if (name.text.trim().isEmpty || base.text.trim().isEmpty) { message(t('selectAll')); return; }
     final unitRows=<Map<String,Object?>>[
-      {'unit_name':base.text.trim(),'factor_to_base':1.0}
+      {'unit_name':base.text.trim(),'factor_to_base':1.0,'sale_price_minor':((double.tryParse(baseSalePrice.text.replaceAll(',','.'))??0)*100).round()}
     ];
     try {
       for (final part in units.text.split(',')) {
         if (part.trim().isEmpty) continue;
         final bits=part.split('=');
-        if (bits.length!=2 || bits[0].trim().isEmpty) throw FormatException();
+        if ((bits.length!=2 && bits.length!=3) || bits[0].trim().isEmpty) throw FormatException();
         final factor=double.parse(bits[1].trim().replaceAll(',', '.'));
-        unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor});
+        final unitPrice=bits.length==3 ? double.parse(bits[2].trim().replaceAll(',', '.')) : 0.0;
+        if(unitPrice<0) throw FormatException();
+        unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor,'sale_price_minor':(unitPrice*100).round()});
       }
       await db.saveProduct(name:name.text,baseUnit:base.text,trackingMode:mode,units:unitRows);
       await refresh(); message(t('created'));
@@ -308,6 +315,129 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
   Future<void> openTransaction(bool receiving,{Map<String,Object?>? selectedProduct}) async {
+    if(receiving){await _openReceiptTransaction(selectedProduct:selectedProduct);}
+    else{await _openIssueCashier(selectedProduct:selectedProduct);}
+  }
+
+  Future<void> _openIssueCashier({Map<String,Object?>? selectedProduct}) async {
+    final customers=await db.listParties('customers');
+    final available=(await db.listProducts()).where((p)=>((p['stock_base'] as num?)?.toDouble()??0)>0).toList();
+    if(!mounted)return;
+    if(customers.isEmpty){
+      final c=TextEditingController();
+      final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
+        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('name'))),
+        actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
+      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
+      return;
+    }
+    if(available.isEmpty){message(tr3('لا توجد أصناف لها رصيد متاح للصرف','No products have available stock','Aucun produit avec stock disponible'));return;}
+    int? customerId=customers.first['id'] as int;
+    int? productId;
+    Map<String,Object?>? unit;
+    List<Map<String,Object?>> units=[];
+    final basket=<Map<String,Object?>>[];
+    String qty='1';
+    Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
+      final loaded=await db.listUnits(p['id'] as int);
+      setLocal(()=>{productId=p['id'] as int;units=loaded;unit=null;});
+    }
+    final initial=selectedProduct==null?null:available.where((p)=>p['id']==selectedProduct['id']).firstOrNull;
+    if(initial!=null){productId=initial['id'] as int;units=await db.listUnits(productId!);}
+    await showDialog<void>(context:context,barrierDismissible:false,builder:(ctx)=>Dialog(
+      insetPadding:const EdgeInsets.all(10),
+      child:SafeArea(child:SizedBox(width:560,height:MediaQuery.of(ctx).size.height*.92,
+        child:StatefulBuilder(builder:(ctx,setLocal)=>Padding(padding:const EdgeInsets.all(10),child:Column(children:[
+          Row(children:[Expanded(child:Text(tr3('كاشير الصرف','Issue cashier','Caisse de sortie'),style:Theme.of(ctx).textTheme.titleLarge)),
+            IconButton(onPressed:()=>Navigator.pop(ctx),icon:const Icon(Icons.close))]),
+          DropdownButtonFormField<int>(value:customerId,isExpanded:true,decoration:InputDecoration(labelText:t('customer')),
+            items:customers.map((c)=>DropdownMenuItem(value:c['id'] as int,child:Text(c['name'].toString()))).toList(),
+            onChanged:(v)=>setLocal(()=>customerId=v)),
+          const SizedBox(height:6),
+          Align(alignment:AlignmentDirectional.centerStart,child:Text(tr3('معرض الأصناف المتاحة','Available products','Produits disponibles'))),
+          Expanded(flex:5,child:GridView.builder(
+            padding:const EdgeInsets.symmetric(vertical:6),
+            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:76,crossAxisSpacing:5,mainAxisSpacing:5),
+            itemCount:available.length,itemBuilder:(ctx,i){
+              final p=available[i];final active=productId==p['id'];
+              return OutlinedButton(
+                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(4),
+                  backgroundColor:active?Theme.of(ctx).colorScheme.primaryContainer:null),
+                onPressed:()=>selectProduct(p,setLocal),
+                child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
+                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall,maxLines:1),
+                ]));
+            })),
+          const Divider(height:10),
+          Row(children:[
+            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              Text(tr3('الكمية','Quantity','Quantité')),
+              Text(qty.isEmpty?'0':qty,style:Theme.of(ctx).textTheme.headlineMedium),
+            ])),
+            Expanded(flex:2,child:Wrap(spacing:4,runSpacing:4,alignment:WrapAlignment.end,children:[
+              ...['½','¼','1','2','3','4','5','6','7','8','9','0','.','⌫'].map((k)=>SizedBox(width:40,height:36,
+                child:OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero),onPressed:()=>setLocal((){
+                  if(k=='⌫'){if(qty.isNotEmpty)qty=qty.substring(0,qty.length-1);}
+                  else if(k=='½'){qty='0.5';}
+                  else if(k=='¼'){qty='0.25';}
+                  else if(k=='.'){if(!qty.contains('.'))qty+='.';}
+                  else{qty+=k;}
+                }),child:Text(k)))),
+            ])),
+          ]),
+          const SizedBox(height:6),
+          Align(alignment:AlignmentDirectional.centerStart,child:Text(productId==null
+            ?tr3('اختر الصنف لإظهار وحداته','Select a product to show its units','Choisissez un produit pour afficher ses unités')
+            :available.firstWhere((p)=>p['id']==productId)['name'].toString()+' — '+tr3('الوحدات','Units','Unités'))),
+          SizedBox(height:56,child:units.isEmpty
+            ?Center(child:Text(tr3('لا توجد وحدات معرفة لهذا الصنف','No units defined for this product','Aucune unité définie pour ce produit')))
+            :ListView.separated(scrollDirection:Axis.horizontal,itemCount:units.length,separatorBuilder:(_,__)=>const SizedBox(width:6),
+              itemBuilder:(ctx,i){
+                final u=units[i];final active=unit?['id']==u['id'];
+                final price=((u['sale_price_minor'] as num?)?.toDouble()??0)/100;
+                return OutlinedButton(style:OutlinedButton.styleFrom(
+                  backgroundColor:active?Theme.of(ctx).colorScheme.secondaryContainer:null),
+                  onPressed:()=>setLocal(()=>unit=u),
+                  child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                    Text(u['unit_name'].toString(),style:const TextStyle(fontWeight:FontWeight.bold)),
+                    Text(price.toStringAsFixed(2),style:Theme.of(ctx).textTheme.labelSmall),
+                  ]));
+              })),
+          const SizedBox(height:5),
+          SizedBox(width:double.infinity,child:FilledButton.icon(
+            onPressed:productId==null||unit==null?null:(){
+              final n=double.tryParse(qty.replaceAll(',','.'))??0;
+              if(n<=0){message(tr3('أدخل كمية صحيحة','Enter a valid quantity','Saisissez une quantité valide'));return;}
+              final p=available.firstWhere((p)=>p['id']==productId);final u=unit!;
+              basket.add({'product_id':productId,'product_name':p['name'],'unit_name':u['unit_name'],
+                'factor_to_base':u['factor_to_base'],'quantity':n,'unit_price_minor':u['sale_price_minor']??0});
+              qty='1';unit=null;setLocal((){});
+            },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart')))),
+          const Divider(height:10),
+          Align(alignment:AlignmentDirectional.centerStart,child:Text(t('cart')+' ('+basket.length.toString()+')')),
+          Expanded(flex:2,child:ListView.builder(itemCount:basket.length,itemBuilder:(ctx,i){
+            final l=basket[i];final total=(l['quantity'] as num)*(l['unit_price_minor'] as num)/100;
+            return ListTile(dense:true,contentPadding:EdgeInsets.zero,title:Text(l['product_name'].toString()),
+              subtitle:Text(l['quantity'].toString()+' × '+l['unit_name'].toString()),
+              trailing:Row(mainAxisSize:MainAxisSize.min,children:[Text(total.toStringAsFixed(2)),
+                IconButton(icon:const Icon(Icons.close),onPressed:()=>setLocal(()=>basket.removeAt(i)))]));
+          })),
+          SizedBox(width:double.infinity,child:FilledButton(onPressed:basket.isEmpty?null:()async{
+            try{
+              final customer=customers.firstWhere((c)=>c['id']==customerId);
+              final id=await db.createDocument(kind:'issue',partyType:'customer',partyId:customerId!,
+                partyName:customer['name'] as String,createdBy:1,lines:basket.map((e)=>Map<String,Object?>.from(e)).toList());
+              await db.submitDocument(documentId:id,userId:1);
+              if(ctx.mounted)Navigator.pop(ctx);await refresh();message(t('sent'));
+            }catch(e){message(e.toString());}
+          },child:Text(t('submit')))),
+        ]))))),
+    ));
+  }
+
+  Future<void> _openReceiptTransaction({Map<String,Object?>? selectedProduct}) async {
+    const receiving=true;
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
     final productRows=await db.listProducts();
