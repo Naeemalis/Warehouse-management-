@@ -991,12 +991,16 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 :ListView.builder(itemCount:(statement!['entries'] as List).length,itemBuilder:(ctx,i){
                   final e=(statement!['entries'] as List<Map<String,Object?>>)[i];
                   final payment=e['entry_type']=='payment';
+                  final isReturn=e['entry_type']=='return_in';
+                  final credit=payment||isReturn;
+                  final label=payment?tr3('دفعة','Payment','Paiement')
+                    :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):tr3('فاتورة صرف','Issue invoice','Facture de sortie'));
                   return ListTile(
-                    dense:true,leading:Icon(payment?Icons.payments:Icons.receipt_long),
-                    title:Text('${e['document_no']} · ${payment?tr3('دفعة','Payment','Paiement'):tr3('فاتورة صرف','Issue invoice','Facture de sortie')}'),
+                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    title:Text('${e['document_no']} · $label'),
                     subtitle:Text('${e['entry_date']} · ${e['status']}'),
                     trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                      Text(payment?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
                       Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
                     ]),
                   );
