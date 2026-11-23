@@ -469,7 +469,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
     List<Map<String,Object?>> units=await db.listUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
-    final quantity=TextEditingController(text:'1');
+    final quantity=TextEditingController();
     final price=TextEditingController(text:'0');
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
@@ -493,7 +493,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
           onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
         const SizedBox(height:10),
-        TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
+        TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'),hintText:'0')),
         const SizedBox(height:8),
         GridView.count(
           crossAxisCount:3,
@@ -582,7 +582,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             'expiry_splits':receiving?expirySplits.map((s)=>Map<String,Object?>.from(s)).toList():null,
             'quantity':q,'unit_price_minor':((double.tryParse(price.text)??0)*100).round(),
           });
-          quantity.text='1';
+          quantity.clear();
           expirySplits.clear(); expiryQty.text='1';
           setLocal((){});
         },icon:const Icon(Icons.add_shopping_cart),label:Text(t('addCart'))),
