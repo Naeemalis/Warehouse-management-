@@ -199,9 +199,9 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 ? ListView(children: [const SizedBox(height:90), Icon(Icons.inventory_2_outlined,size:68,color:Theme.of(context).colorScheme.primary), const SizedBox(height:12), Center(child:Text(t('empty')))])
                 : GridView.builder(
                     padding: const EdgeInsets.all(12),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 190, mainAxisExtent: 128,
-                      crossAxisSpacing: 10, mainAxisSpacing: 10),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4, mainAxisExtent: 112,
+                      crossAxisSpacing: 6, mainAxisSpacing: 6),
                     itemCount: products.length,
                     itemBuilder: (context,index) {
                       final p = products[index];
@@ -210,17 +210,17 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                           borderRadius:BorderRadius.circular(12),
                           onTap:()=>openTransaction(false,selectedProduct:p),
                           onLongPress:()=>editProduct(p),
-                          child:Padding(padding:const EdgeInsets.all(12),child:Column(
+                          child:Padding(padding:const EdgeInsets.all(6),child:Column(
                             crossAxisAlignment:CrossAxisAlignment.start,children:[
-                              const Icon(Icons.inventory_2_outlined),const Spacer(),
-                              Text('${p['name']}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w600)),
-                              const SizedBox(height:4),
-                              Text('${p['stock_base']} ${p['base_unit_name']}',style:Theme.of(context).textTheme.bodySmall),
+                              const Icon(Icons.inventory_2_outlined,size:22),const Spacer(),
+                              Text('${p['name']}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
+                              const SizedBox(height:2),
+                              Text('${p['stock_base']} ${p['base_unit_name']}',maxLines:1,overflow:TextOverflow.ellipsis,style:Theme.of(context).textTheme.labelSmall?.copyWith(fontSize:9)),
                             ],
                           )),
                         )),
                         PositionedDirectional(top:0,end:0,child:PopupMenuButton<String>(
-                          icon:const Icon(Icons.more_vert,size:19),
+                          icon:const Icon(Icons.more_vert,size:16),padding:EdgeInsets.zero,constraints:const BoxConstraints(minWidth:30,minHeight:30),
                           onSelected:(v) async {
                             if(v=='edit'){await editProduct(p);}
                             if(v=='history'){await showProductHistory(p);}
