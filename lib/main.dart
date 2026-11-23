@@ -338,7 +338,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
           items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v) { final u=units.firstWhere((x)=>x['id']==v); setLocal(() { unitId=v; expirySplits.clear(); }); }),
+          onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'))),
         const SizedBox(height:8),
