@@ -340,7 +340,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     String qty='1';
     Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
       final loaded=await db.listUnits(p['id'] as int);
-      setLocal(()=>{productId=p['id'] as int;units=loaded;unit=null;});
+      setLocal(() { productId=p['id'] as int; units=loaded; unit=null; });
     }
     final initial=selectedProduct==null?null:available.where((p)=>p['id']==selectedProduct['id']).firstOrNull;
     if(initial!=null){productId=initial['id'] as int;units=await db.listUnits(productId!);}
@@ -371,39 +371,45 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             })),
           const Divider(height:10),
           Row(children:[
-            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-              Text(tr3('الكمية','Quantity','Quantité')),
-              Text(qty.isEmpty?'0':qty,style:Theme.of(ctx).textTheme.headlineMedium),
-            ])),
-            Expanded(flex:2,child:Wrap(spacing:4,runSpacing:4,alignment:WrapAlignment.end,children:[
-              ...['½','¼','1','2','3','4','5','6','7','8','9','0','.','⌫'].map((k)=>SizedBox(width:40,height:36,
-                child:OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero),onPressed:()=>setLocal((){
-                  if(k=='⌫'){if(qty.isNotEmpty)qty=qty.substring(0,qty.length-1);}
-                  else if(k=='½'){qty='0.5';}
-                  else if(k=='¼'){qty='0.25';}
-                  else if(k=='.'){if(!qty.contains('.'))qty+='.';}
-                  else{qty+=k;}
-                }),child:Text(k)))),
-            ])),
+            Text(tr3('الكمية','Quantity','Quantité')+': ',style:Theme.of(ctx).textTheme.titleSmall),
+            Text(qty.isEmpty?'0':qty,style:Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.bold)),
           ]),
-          const SizedBox(height:6),
-          Align(alignment:AlignmentDirectional.centerStart,child:Text(productId==null
-            ?tr3('اختر الصنف لإظهار وحداته','Select a product to show its units','Choisissez un produit pour afficher ses unités')
-            :available.firstWhere((p)=>p['id']==productId)['name'].toString()+' — '+tr3('الوحدات','Units','Unités'))),
-          SizedBox(height:56,child:units.isEmpty
-            ?Center(child:Text(tr3('لا توجد وحدات معرفة لهذا الصنف','No units defined for this product','Aucune unité définie pour ce produit')))
-            :ListView.separated(scrollDirection:Axis.horizontal,itemCount:units.length,separatorBuilder:(_,__)=>const SizedBox(width:6),
-              itemBuilder:(ctx,i){
-                final u=units[i];final active=unit?['id']==u['id'];
-                final price=((u['sale_price_minor'] as num?)?.toDouble()??0)/100;
-                return OutlinedButton(style:OutlinedButton.styleFrom(
-                  backgroundColor:active?Theme.of(ctx).colorScheme.secondaryContainer:null),
-                  onPressed:()=>setLocal(()=>unit=u),
-                  child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-                    Text(u['unit_name'].toString(),style:const TextStyle(fontWeight:FontWeight.bold)),
-                    Text(price.toStringAsFixed(2),style:Theme.of(ctx).textTheme.labelSmall),
-                  ]));
-              })),
+          SizedBox(height:142,child:Row(children:[
+            Expanded(flex:3,child:GridView.count(
+              crossAxisCount:3,shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),
+              mainAxisSpacing:4,crossAxisSpacing:4,childAspectRatio:1.7,
+              children:['1','2','3','4','5','6','7','8','9','½','0','¼','⌫','.'].map((k)=>
+                OutlinedButton(style:OutlinedButton.styleFrom(padding:EdgeInsets.zero),
+                  onPressed:()=>setLocal((){
+                    if(k=='⌫'){if(qty.isNotEmpty)qty=qty.substring(0,qty.length-1);}
+                    else if(k=='½'){qty='0.5';}
+                    else if(k=='¼'){qty='0.25';}
+                    else if(k=='.'){if(!qty.contains('.'))qty+='.';}
+                    else{qty+=k;}
+                  }),child:Text(k,style:const TextStyle(fontWeight:FontWeight.w600)))).toList(),
+            )),
+            const VerticalDivider(width:10),
+            Expanded(flex:2,child:units.isEmpty
+              ?Center(child:Text(tr3('اختر صنفاً','Select product','Choisir un produit'),textAlign:TextAlign.center))
+              :GridView.builder(
+                gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount:2,mainAxisExtent:58,crossAxisSpacing:4,mainAxisSpacing:4),
+                itemCount:units.length,
+                itemBuilder:(ctx,i){
+                  final u=units[i];final active=unit?['id']==u['id'];
+                  final price=((u['sale_price_minor'] as num?)?.toDouble()??0)/100;
+                  return OutlinedButton(
+                    style:OutlinedButton.styleFrom(
+                      padding:const EdgeInsets.all(3),
+                      backgroundColor:active?Theme.of(ctx).colorScheme.secondaryContainer:null),
+                    onPressed:()=>setLocal(()=>unit=u),
+                    child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
+                      Text(u['unit_name'].toString(),maxLines:1,overflow:TextOverflow.ellipsis,
+                        style:const TextStyle(fontWeight:FontWeight.bold,fontSize:12)),
+                      Text(price.toStringAsFixed(2),style:Theme.of(ctx).textTheme.labelSmall),
+                    ]));
+                })),
+          ])),
           const SizedBox(height:5),
           SizedBox(width:double.infinity,child:FilledButton.icon(
             onPressed:productId==null||unit==null?null:(){
