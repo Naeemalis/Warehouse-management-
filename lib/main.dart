@@ -315,7 +315,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
   Future<void> openTransaction(bool receiving,{Map<String,Object?>? selectedProduct}) async {
-    if(receiving){await _openReceiptTransaction(selectedProduct:selectedProduct);}
+    if(receiving){await _openReceiptTransaction(receiving:receiving,selectedProduct:selectedProduct);}
     else{await _openIssueCashier(selectedProduct:selectedProduct);}
   }
 
@@ -447,8 +447,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     ));
   }
 
-  Future<void> _openReceiptTransaction({Map<String,Object?>? selectedProduct}) async {
-    bool receiving=true;
+  Future<void> _openReceiptTransaction({required bool receiving,Map<String,Object?>? selectedProduct}) async {
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
     final productRows=await db.listProducts();
