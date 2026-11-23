@@ -372,7 +372,18 @@ extension WmsCatalogOperations on WmsDatabase {
     return db.rawQuery('''
       SELECT p.*,
         COALESCE((SELECT SUM(CASE WHEN m.direction='IN' THEN m.quantity_base ELSE -m.quantity_base END)
-          FROM stock_movements m WHERE m.product_id=p.id),0) AS stock_base
+          FROM stock_movements m WHERE m.product_id=p.id),0) AS stock_base,
+        (SELECT MIN(b.expiry_date) FROM stock_batches b
+          WHERE b.product_id=p.id AND b.expiry_date IS NOT NULL
+          AND b.received_quantity_base-COALESCE((
+            SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+            JOIN stock_movements om ON om.id=a.stock_movement_id
+            WHERE a.batch_id=b.id AND om.direction='OUT'
+          ),0)>0) AS nearest_expiry_date,
+        COALESCE(
+          (SELECT MAX(m.created_at) FROM stock_movements m WHERE m.product_id=p.id AND m.direction='OUT'),
+          (SELECT MAX(m.created_at) FROM stock_movements m WHERE m.product_id=p.id AND m.direction='IN')
+        ) AS last_activity_at
       FROM products p WHERE p.is_active=1 ORDER BY p.name COLLATE NOCASE
     ''');
   }
