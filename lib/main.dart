@@ -1025,20 +1025,20 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             const SizedBox(height:10),
             DropdownButtonFormField<int>(
               value:selected,decoration:InputDecoration(labelText:t('supplier')),
-              items:suppliers.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('\${p['name']}'))).toList(),
+              items:suppliers.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
               onChanged:(v) async {if(v==null)return;final s=await db.supplierStatement(v);setSheet((){selected=v;statement=s;});},
             ),
             if(statement!=null)...[
               const SizedBox(height:10),
               Row(children:[
-                Expanded(child:Text('\${tr3('إجمالي التوريد','Total receipts','Total des réceptions')}: \${money(statement!['total_debit_minor'])}')),
-                Expanded(child:Text('\${tr3('المدفوع','Paid','Payé')}: \${money(statement!['total_paid_minor'])}')),
+                Expanded(child:Text('${tr3('إجمالي التوريد','Total receipts','Total des réceptions')}: ${money(statement!['total_debit_minor'])}')),
+                Expanded(child:Text('${tr3('المدفوع','Paid','Payé')}: ${money(statement!['total_paid_minor'])}')),
               ]),
               Row(children:[
-                Expanded(child:Text('\${tr3('مرتجعات المورد','Supplier returns','Retours fournisseur')}: \${money(statement!['total_returned_minor'])}')),
+                Expanded(child:Text('${tr3('مرتجعات المورد','Supplier returns','Retours fournisseur')}: ${money(statement!['total_returned_minor'])}')),
               ]),
               const SizedBox(height:6),
-              Text('\${tr3('الرصيد المتبقي','Outstanding balance','Solde restant')}: \${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
+              Text('${tr3('الرصيد المتبقي','Outstanding balance','Solde restant')}: ${money(statement!['balance_minor'])}',style:Theme.of(ctx).textTheme.titleMedium),
               const SizedBox(height:8),
               SizedBox(width:double.infinity,child:FilledButton.icon(
                 onPressed:() async {await recordSupplierPayment(selected!,ctx);final updated=await db.supplierStatement(selected!);setSheet((){statement=updated;});},
@@ -1055,11 +1055,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                     :(e['entry_type']=='return_out'?tr3('مرتجع مورد','Supplier return','Retour fournisseur'):tr3('فاتورة توريد','Receipt invoice','Facture de réception'));
                   return ListTile(
                     dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
-                    title:Text('\${e['document_no']} · $label'),
-                    subtitle:Text('\${e['entry_date']} · \${e['status']}'),
+                    title:Text('${e['document_no']} · $label'),
+                    subtitle:Text('${e['entry_date']} · ${e['status']}'),
                     trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                      Text(credit?'-\${money(e['credit_minor'])}':'+\${money(e['debit_minor'])}'),
-                      Text('\${tr3('الرصيد','Balance','Solde')}: \${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
+                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
                     ]),
                   );
                 })),
