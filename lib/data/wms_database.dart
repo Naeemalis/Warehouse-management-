@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 3,
+      version: 4,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -80,6 +80,15 @@ class WmsDatabase {
             }
           }
         }
+        if (oldVersion < 4) {
+          await db.execute("ALTER TABLE product_units ADD COLUMN sale_price_minor INTEGER NOT NULL DEFAULT 0");
+          await db.execute("""
+            UPDATE product_units
+            SET sale_price_minor = COALESCE(
+              (SELECT issue_price_minor FROM products WHERE products.id = product_units.product_id), 0
+            )
+          """);
+        }
       },
       onConfigure: (db) async { await db.execute('PRAGMA foreign_keys = ON'); },
     );
@@ -107,6 +116,7 @@ class WmsDatabase {
       unit_name TEXT NOT NULL,
       factor_to_base REAL NOT NULL CHECK(factor_to_base > 0),
       sort_order INTEGER NOT NULL DEFAULT 0,
+      sale_price_minor INTEGER NOT NULL DEFAULT 0 CHECK(sale_price_minor >= 0),
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       UNIQUE(product_id, unit_name)
@@ -420,7 +430,9 @@ extension WmsCatalogOperations on WmsDatabase {
         if (factor <= 0) throw ArgumentError('Unit conversion must be positive');
         await txn.insert('product_units', {
           'product_id': id, 'unit_name': u['unit_name'],
-          'factor_to_base': factor, 'sort_order': i, 'created_at': now,
+          'factor_to_base': factor, 'sort_order': i,
+          'sale_price_minor': (u['sale_price_minor'] as num?)?.round() ?? 0,
+          'created_at': now,
         });
       }
       return id;
@@ -484,7 +496,7 @@ extension WmsCatalogOperations on WmsDatabase {
           'product_name_snapshot':productRows.first['name'],
           'unit_name_snapshot':line['unit_name'],
           'entered_quantity':qty,'factor_to_base_snapshot':factor,'base_quantity':baseQty,
-          'unit_price_minor':line['unit_price_minor']??0,
+          'unit_price_minor':kind=='issue' ? (unitRows.first['sale_price_minor'] as num? ?? 0).round() : (line['unit_price_minor']??0),
           'packaging_note':line['packaging_note'],'created_at':now,
         });
         if(kind=='receipt'){
