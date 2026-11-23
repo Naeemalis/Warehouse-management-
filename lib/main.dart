@@ -903,30 +903,31 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
+    final arabicStyle=SragReceiptStyle.defaults();
     final result=await db.documentDetails(documentId);
     final doc=result['document'] as Map<String,Object?>;
     final lines=result['lines'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:almaraiRegular,bold:almaraiBold));
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:arabicStyle.font,bold:arabicStyle.boldFont));
     final isReceipt=doc['kind']=='receipt';
     pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
       pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
         crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:almaraiBold,fontSize:20))),
-          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:almaraiBold,fontSize:16))),
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:20))),
+          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:16))),
           pw.SizedBox(height:10),
           pw.Text('رقم السند: ${doc['document_no']}'),
           pw.Text('التاريخ: ${doc['created_at']}'),
           pw.Text('${isReceipt?'المورد':'العميل / الجهة'}: ${doc['party_name_snapshot']??''}'),
           pw.SizedBox(height:10),
           pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:almaraiBold,fontSize:9)))).toList()),
+            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:9)))).toList()),
             ...lines.map((line)=>pw.TableRow(children:[
               '${line['product_name_snapshot']}','${line['entered_quantity']}','${line['unit_name_snapshot']}',
               money(line['unit_price_minor']),money((line['entered_quantity'] as num)*(line['unit_price_minor'] as num)),
             ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:const pw.TextStyle(fontSize:9)))).toList())),
           ]),
           pw.SizedBox(height:10),
-          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:almaraiBold,fontSize:14))),
+          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:14))),
         ],
       )),
     ]));
@@ -935,19 +936,20 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   Future<Uint8List> buildStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
     await SragFonts.load();
+    final arabicStyle=SragReceiptStyle.defaults();
     final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
     final entries=statement['entries'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:almaraiRegular,bold:almaraiBold));
+    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:arabicStyle.font,bold:arabicStyle.boldFont));
     pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
       pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
         crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:almaraiBold,fontSize:20))),
-          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:almaraiBold,fontSize:16))),
+          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:20))),
+          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:16))),
           pw.Text('الطرف: ${party['name']}'),
           pw.Text('تاريخ الطباعة: ${DateTime.now().toIso8601String()}'),
           pw.SizedBox(height:10),
           pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:almaraiBold,fontSize:8)))).toList()),
+            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:8)))).toList()),
             ...entries.map((e)=>pw.TableRow(children:[
               '${e['document_no']}','${e['entry_date']}',money(e['debit_minor']),money(e['credit_minor']),money(e['balance_minor']),
             ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:const pw.TextStyle(fontSize:8)))).toList())),
@@ -956,7 +958,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           pw.Text('إجمالي الفواتير: ${money(statement['total_debit_minor'])}'),
           pw.Text('إجمالي المرتجعات: ${money(statement['total_returned_minor'])}'),
           pw.Text('إجمالي الدفعات: ${money(statement['total_paid_minor'])}'),
-          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:almaraiBold,fontSize:13)),
+          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:arabicStyle.boldFont,fontSize:13)),
         ],
       )),
     ]));
