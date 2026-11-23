@@ -448,7 +448,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
   Future<void> _openReceiptTransaction({Map<String,Object?>? selectedProduct}) async {
-    const receiving=true;
+    bool receiving=true;
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
     final productRows=await db.listProducts();
