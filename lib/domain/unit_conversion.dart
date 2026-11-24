@@ -38,7 +38,7 @@ List<Map<String, Object?>> buildHierarchicalUnitDefinitions({
       !supplySalePrice.isFinite || supplySalePrice <= 0) {
     throw ArgumentError('Both sale prices must be positive');
   }
-  final parts = definitions.split(',').where((p) => p.trim().isNotEmpty).toList();
+  final parts = definitions.replaceAll('،', ',').split(',').where((p) => p.trim().isNotEmpty).toList();
   if (parts.isEmpty) throw ArgumentError('A purchase unit is required');
   final parsed = <({String name, double factor})>[];
   for (final part in parts) {
