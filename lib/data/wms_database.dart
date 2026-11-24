@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 3,
+      version: 6,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -80,6 +80,42 @@ class WmsDatabase {
             }
           }
         }
+        if (oldVersion < 5) {
+          await db.execute('''CREATE TABLE supplier_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+            amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+            payment_date TEXT NOT NULL,
+            payment_method TEXT NOT NULL DEFAULT 'cash',
+            reference_no TEXT, notes TEXT,
+            created_by INTEGER, created_at TEXT NOT NULL
+          )''');
+          await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 6) {
+          await db.execute("ALTER TABLE product_units ADD COLUMN is_purchase_unit INTEGER NOT NULL DEFAULT 0");
+          await db.execute("""
+            UPDATE product_units SET is_purchase_unit = 1
+            WHERE id IN (
+              SELECT pu.id FROM product_units pu
+              WHERE pu.id = (
+                SELECT pu2.id FROM product_units pu2
+                WHERE pu2.product_id=pu.product_id
+                ORDER BY pu2.factor_to_base DESC, pu2.sort_order DESC, pu2.id DESC LIMIT 1
+              )
+            )
+          """);
+          await db.execute("CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1");
+        }
+        if (oldVersion < 4) {
+          await db.execute("ALTER TABLE product_units ADD COLUMN sale_price_minor INTEGER NOT NULL DEFAULT 0");
+          await db.execute("""
+            UPDATE product_units
+            SET sale_price_minor = COALESCE(
+              (SELECT issue_price_minor FROM products WHERE products.id = product_units.product_id), 0
+            )
+          """);
+        }
       },
       onConfigure: (db) async { await db.execute('PRAGMA foreign_keys = ON'); },
     );
@@ -107,6 +143,8 @@ class WmsDatabase {
       unit_name TEXT NOT NULL,
       factor_to_base REAL NOT NULL CHECK(factor_to_base > 0),
       sort_order INTEGER NOT NULL DEFAULT 0,
+      sale_price_minor INTEGER NOT NULL DEFAULT 0 CHECK(sale_price_minor >= 0),
+      is_purchase_unit INTEGER NOT NULL DEFAULT 0 CHECK(is_purchase_unit IN (0,1)),
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       UNIQUE(product_id, unit_name)
@@ -175,8 +213,19 @@ class WmsDatabase {
       created_by INTEGER, created_at TEXT NOT NULL
     )''');
     await db.execute('CREATE INDEX idx_customer_payments_customer_date ON customer_payments(customer_id, payment_date)');
+    await db.execute('''CREATE TABLE supplier_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+      amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+      payment_date TEXT NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'cash',
+      reference_no TEXT, notes TEXT,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
     await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
     await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
+    await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
     await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
@@ -394,6 +443,13 @@ extension WmsCatalogOperations on WmsDatabase {
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  Future<List<Map<String, Object?>>> listPurchaseUnits(int productId) async {
+    final db = await database;
+    return db.query('product_units',
+      where: 'product_id=? AND is_active=1 AND is_purchase_unit=1',
+      whereArgs: [productId], orderBy: 'sort_order, id');
+  }
+
   Future<int> saveProduct({
     required String name,
     required String baseUnit,
@@ -406,6 +462,10 @@ extension WmsCatalogOperations on WmsDatabase {
       throw ArgumentError('Product name and base unit are required');
     }
     validateUnitDefinitions(units, baseUnit);
+    final purchaseUnitCount = units.where((u) => u['is_purchase_unit'] == true).length;
+    if (purchaseUnitCount != 1) {
+      throw ArgumentError('Exactly one purchase unit must be defined for each product');
+    }
     final db = await database;
     return db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
@@ -420,7 +480,10 @@ extension WmsCatalogOperations on WmsDatabase {
         if (factor <= 0) throw ArgumentError('Unit conversion must be positive');
         await txn.insert('product_units', {
           'product_id': id, 'unit_name': u['unit_name'],
-          'factor_to_base': factor, 'sort_order': i, 'created_at': now,
+          'factor_to_base': factor, 'sort_order': i,
+          'sale_price_minor': (u['sale_price_minor'] as num?)?.round() ?? 0,
+          'is_purchase_unit': (u['is_purchase_unit'] as bool? ?? false) ? 1 : 0,
+          'created_at': now,
         });
       }
       return id;
@@ -473,8 +536,15 @@ extension WmsCatalogOperations on WmsDatabase {
           where:'product_id=? AND unit_name=? AND is_active=1',
           whereArgs:[productId,unitName],limit:1);
         if(unitRows.isEmpty) throw StateError('Unit is not defined for this product: $unitName');
+        if (kind == 'receipt' && (unitRows.first['is_purchase_unit'] as num? ?? 0) != 1) {
+          throw StateError('Receipts must use the product purchase unit');
+        }
         final factor = (unitRows.first['factor_to_base'] as num).toDouble();
         final qty = (line['quantity'] as num).toDouble();
+        final enteredPrice = (line['unit_price_minor'] as num?)?.round() ?? 0;
+        if (kind == 'receipt' && enteredPrice <= 0) {
+          throw ArgumentError('Purchase price is required and must be greater than zero');
+        }
         if (!qty.isFinite || qty <= 0 || !factor.isFinite || factor <= 0) {
           throw ArgumentError('Quantity and saved product unit must be valid');
         }
@@ -484,7 +554,7 @@ extension WmsCatalogOperations on WmsDatabase {
           'product_name_snapshot':productRows.first['name'],
           'unit_name_snapshot':line['unit_name'],
           'entered_quantity':qty,'factor_to_base_snapshot':factor,'base_quantity':baseQty,
-          'unit_price_minor':line['unit_price_minor']??0,
+          'unit_price_minor':kind=='issue' ? (unitRows.first['sale_price_minor'] as num? ?? 0).round() : enteredPrice,
           'packaging_note':line['packaging_note'],'created_at':now,
         });
         if(kind=='receipt'){
@@ -687,26 +757,94 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 
+  Future<void> addSupplierPayment({
+    required int supplierId, required int amountMinor,
+    required String paymentDate, String method='cash',
+    String? referenceNo, String? notes, int userId=1,
+  }) async {
+    if (amountMinor <= 0) throw ArgumentError('Payment must be positive');
+    final db = await database;
+    await db.transaction((txn) async {
+      final supplier = await txn.query('suppliers', where:'id=?', whereArgs:[supplierId], limit:1);
+      if (supplier.isEmpty) throw StateError('Supplier not found');
+      final now = DateTime.now().toIso8601String();
+      final id = await txn.insert('supplier_payments', {
+        'supplier_id':supplierId, 'amount_minor':amountMinor,
+        'payment_date':paymentDate, 'payment_method':method,
+        'reference_no':referenceNo, 'notes':notes,
+        'created_by':userId, 'created_at':now,
+      });
+      await txn.insert('audit_log', {
+        'entity_type':'supplier_payment','entity_id':id,'action':'created',
+        'actor_id':userId,'details':'Supplier payment recorded',
+        'created_at':now,
+      });
+    });
+  }
+
+  Future<Map<String, Object?>> supplierStatement(int supplierId) async {
+    final db = await database;
+    final partyRows = await db.query('suppliers', where:'id=?', whereArgs:[supplierId], limit:1);
+    if (partyRows.isEmpty) throw StateError('Supplier not found');
+    final docs = await db.rawQuery("""
+      SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
+        d.party_name_snapshot,
+        CASE WHEN d.kind='receipt' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
+        CASE WHEN d.kind='return_out' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
+        d.kind AS entry_type
+      FROM documents d JOIN document_lines l ON l.document_id=d.id
+      WHERE d.kind IN ('receipt','return_out') AND d.status='approved'
+        AND d.party_type='supplier' AND d.party_id=?
+      GROUP BY d.id
+    """, [supplierId]);
+    final payments = await db.rawQuery("""
+      SELECT id, 'PAY-'||id AS document_no, payment_date AS entry_date,
+        'recorded' AS status, '' AS party_name_snapshot,
+        0 AS debit_minor, amount_minor AS credit_minor,
+        'payment' AS entry_type, payment_method, reference_no, notes
+      FROM supplier_payments WHERE supplier_id=?
+    """, [supplierId]);
+    final entries = [...docs, ...payments]
+      ..sort((a,b) => '${a['entry_date']}'.compareTo('${b['entry_date']}'));
+    var balance = 0;
+    final ledger = <Map<String,Object?>>[];
+    for (final entry in entries) {
+      balance += (entry['debit_minor'] as num).round();
+      balance -= (entry['credit_minor'] as num).round();
+      ledger.add({...entry, 'balance_minor':balance});
+    }
+    return {
+      'supplier':partyRows.first,
+      'entries':ledger,
+      'total_debit_minor':docs.fold<int>(0,(s,e)=>s+(e['debit_minor'] as num).round()),
+      'total_returned_minor':docs.fold<int>(0,(s,e)=>s+(e['credit_minor'] as num).round()),
+      'total_paid_minor':payments.fold<int>(0,(s,e)=>s+(e['credit_minor'] as num).round()),
+      'balance_minor':balance,
+    };
+  }
+
   Future<Map<String, Object?>> customerStatement(int customerId) async {
     final db = await database;
     final customerRows = await db.query('customers', where:'id=?', whereArgs:[customerId], limit:1);
     if (customerRows.isEmpty) throw StateError('Customer not found');
-    final docs = await db.rawQuery('''
+    final docs = await db.rawQuery("""
       SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
         d.party_name_snapshot,
-        COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) AS debit_minor,
-        0 AS credit_minor, 'issue' AS entry_type
+        CASE WHEN d.kind='issue' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
+        CASE WHEN d.kind='return_in' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
+        d.kind AS entry_type
       FROM documents d JOIN document_lines l ON l.document_id=d.id
-      WHERE d.kind='issue' AND d.status='approved' AND d.party_type='customer' AND d.party_id=?
+      WHERE d.kind IN ('issue','return_in') AND d.status='approved'
+        AND d.party_type='customer' AND d.party_id=?
       GROUP BY d.id
-    ''', [customerId]);
-    final payments = await db.rawQuery('''
+    """, [customerId]);
+    final payments = await db.rawQuery("""
       SELECT id, 'PAY-'||id AS document_no, payment_date AS entry_date,
         'recorded' AS status, '' AS party_name_snapshot,
         0 AS debit_minor, amount_minor AS credit_minor,
         'payment' AS entry_type, payment_method, reference_no, notes
       FROM customer_payments WHERE customer_id=?
-    ''', [customerId]);
+    """, [customerId]);
     final entries = [...docs, ...payments]
       ..sort((a,b) => '${a['entry_date']}'.compareTo('${b['entry_date']}'));
     var balance = 0;
@@ -720,6 +858,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
       'customer':customerRows.first,
       'entries':ledger,
       'total_debit_minor':docs.fold<int>(0,(s,e)=>s+(e['debit_minor'] as num).round()),
+      'total_returned_minor':docs.fold<int>(0,(s,e)=>s+(e['credit_minor'] as num).round()),
       'total_paid_minor':payments.fold<int>(0,(s,e)=>s+(e['credit_minor'] as num).round()),
       'balance_minor':balance,
     };

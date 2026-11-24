@@ -3,9 +3,9 @@ name: Flutter Android CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/wms-foundation]
+    branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier]
   pull_request:
-    branches: [main]
+    branches: [main, feature/wms-foundation]
 
 jobs:
   validate-and-build:
@@ -18,6 +18,8 @@ jobs:
           cache: true
       - name: Generate Android platform project
         run: flutter create . --platforms=android --project-name naeemsoft_wms --no-pub
+      - name: Apply NaeemSoft WMS app name and launcher icon
+        run: python3 tooling/generate_android_branding.py
       - name: Remove generated sample widget test
         run: rm -f test/widget_test.dart
       - name: Install dependencies
