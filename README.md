@@ -4,7 +4,8 @@ Offline-first Android Warehouse Management System built with Flutter and SQLite.
 
 ## Implemented in the development branch
 - Product gallery using a responsive grid, with product creation and long-press editing for name and prices.
-- User-defined base unit and additional units/conversion factors; examples include carton, pack, piece, kg, gram, litre and custom units.
+- Product units are defined as one nested packaging chain: one purchase unit followed by smaller issue/sale units; only the largest unit is selectable on receipt documents.
+- Product setup accepts two sale prices: base-unit price and purchase-unit price. Intermediate unit prices are derived from the base-unit price and cumulative conversion factor; the purchase-unit price remains independent.
 - Supplier/customer management screens.
 - Receiving flow: supplier, product, unit, quantity, purchase price, supplier-specific conversion override and packaging note; lines are collected in a basket and submitted for approval.
 - Issue flow: customer/recipient, product, choose unit before quantity, collect mixed-unit lines in a basket and submit for approval.
@@ -19,7 +20,8 @@ Offline-first Android Warehouse Management System built with Flutter and SQLite.
 - Arabic PDF generation, system print, and share/export actions for receipt/issue documents and customer/supplier statements; the bundled Almarai font is used for Arabic output.
 - Supplier/customer name and phone editing; archive actions hide records from active selectors while preserving linked history.
 - Product name and price editing, plus safe archive from the product gallery; historical invoice snapshots remain unchanged.
-- Issue cashier now accepts an issue price per transaction unit so approved issues can contribute to customer balances.
+- Issue cashier offers base and intermediate units with their derived sale prices; the purchase unit retains its separately entered sale price.
+- Receipt documents are restricted to the single purchase unit; issue documents may use any defined unit.
 - Arabic, English and French translations for the current gallery, transaction and approval workflows; RTL for Arabic and LTR for English/French.
 - SQLite ledger, document line snapshots, approval history and audit entries for product edits.
 
