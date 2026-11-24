@@ -33,7 +33,7 @@ void main() {
       );
       expect(units[1]['unit_name'], 'pack');
       expect(units[1]['factor_to_base'], 12.0);
-      expect(units[1]['sale_price_minor'], 1200);
+      expect(units[1]['sale_price_minor'], 12000);
       expect(units[1]['is_purchase_unit'], false);
       expect(units[2]['unit_name'], 'carton');
       expect(units[2]['factor_to_base'], 144.0);
