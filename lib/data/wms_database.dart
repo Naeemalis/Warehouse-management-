@@ -98,9 +98,14 @@ class WmsDatabase {
             UPDATE product_units SET is_purchase_unit = 1
             WHERE id IN (
               SELECT pu.id FROM product_units pu
-              WHERE pu.factor_to_base = (SELECT MAX(pu2.factor_to_base) FROM product_units pu2 WHERE pu2.product_id=pu.product_id)
+              WHERE pu.id = (
+                SELECT pu2.id FROM product_units pu2
+                WHERE pu2.product_id=pu.product_id
+                ORDER BY pu2.factor_to_base DESC, pu2.sort_order DESC, pu2.id DESC LIMIT 1
+              )
             )
           """);
+          await db.execute("CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1");
         }
         if (oldVersion < 4) {
           await db.execute("ALTER TABLE product_units ADD COLUMN sale_price_minor INTEGER NOT NULL DEFAULT 0");
@@ -220,6 +225,7 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
     await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
     await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
+    await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
     await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
@@ -456,6 +462,10 @@ extension WmsCatalogOperations on WmsDatabase {
       throw ArgumentError('Product name and base unit are required');
     }
     validateUnitDefinitions(units, baseUnit);
+    final purchaseUnitCount = units.where((u) => u['is_purchase_unit'] == true).length;
+    if (purchaseUnitCount != 1) {
+      throw ArgumentError('Exactly one purchase unit must be defined for each product');
+    }
     final db = await database;
     return db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
