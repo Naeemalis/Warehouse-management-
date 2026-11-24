@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 5,
+      version: 6,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -92,6 +92,16 @@ class WmsDatabase {
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
         }
+        if (oldVersion < 6) {
+          await db.execute("ALTER TABLE product_units ADD COLUMN is_purchase_unit INTEGER NOT NULL DEFAULT 0");
+          await db.execute("""
+            UPDATE product_units SET is_purchase_unit = 1
+            WHERE id IN (
+              SELECT pu.id FROM product_units pu
+              WHERE pu.factor_to_base = (SELECT MAX(pu2.factor_to_base) FROM product_units pu2 WHERE pu2.product_id=pu.product_id)
+            )
+          """);
+        }
         if (oldVersion < 4) {
           await db.execute("ALTER TABLE product_units ADD COLUMN sale_price_minor INTEGER NOT NULL DEFAULT 0");
           await db.execute("""
@@ -129,6 +139,7 @@ class WmsDatabase {
       factor_to_base REAL NOT NULL CHECK(factor_to_base > 0),
       sort_order INTEGER NOT NULL DEFAULT 0,
       sale_price_minor INTEGER NOT NULL DEFAULT 0 CHECK(sale_price_minor >= 0),
+      is_purchase_unit INTEGER NOT NULL DEFAULT 0 CHECK(is_purchase_unit IN (0,1)),
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       UNIQUE(product_id, unit_name)
@@ -426,6 +437,13 @@ extension WmsCatalogOperations on WmsDatabase {
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  Future<List<Map<String, Object?>>> listPurchaseUnits(int productId) async {
+    final db = await database;
+    return db.query('product_units',
+      where: 'product_id=? AND is_active=1 AND is_purchase_unit=1',
+      whereArgs: [productId], orderBy: 'sort_order, id');
+  }
+
   Future<int> saveProduct({
     required String name,
     required String baseUnit,
@@ -454,6 +472,7 @@ extension WmsCatalogOperations on WmsDatabase {
           'product_id': id, 'unit_name': u['unit_name'],
           'factor_to_base': factor, 'sort_order': i,
           'sale_price_minor': (u['sale_price_minor'] as num?)?.round() ?? 0,
+          'is_purchase_unit': (u['is_purchase_unit'] as bool? ?? false) ? 1 : 0,
           'created_at': now,
         });
       }
@@ -507,6 +526,9 @@ extension WmsCatalogOperations on WmsDatabase {
           where:'product_id=? AND unit_name=? AND is_active=1',
           whereArgs:[productId,unitName],limit:1);
         if(unitRows.isEmpty) throw StateError('Unit is not defined for this product: $unitName');
+        if (kind == 'receipt' && (unitRows.first['is_purchase_unit'] as num? ?? 0) != 1) {
+          throw StateError('Receipts must use the product purchase unit');
+        }
         final factor = (unitRows.first['factor_to_base'] as num).toDouble();
         final qty = (line['quantity'] as num).toDouble();
         final enteredPrice = (line['unit_price_minor'] as num?)?.round() ?? 0;
