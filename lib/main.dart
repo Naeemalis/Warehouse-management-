@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/wms_database.dart';
+import 'domain/unit_conversion.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -275,6 +276,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final base = TextEditingController(text: lang == 'ar' ? 'حبة' : 'piece');
     final units = TextEditingController();
     final baseSalePrice = TextEditingController();
+    final supplySalePrice = TextEditingController();
     String mode = 'count';
     final result = await showDialog<bool>(context:context, builder:(ctx) => StatefulBuilder(
       builder:(ctx,setLocal) => AlertDialog(
@@ -292,8 +294,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           TextField(controller:baseSalePrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),
             decoration:InputDecoration(labelText:tr3('سعر بيع وحدة الأساس','Base-unit sale price','Prix de vente de l’unité de base'))),
           const SizedBox(height:10),
-          TextField(controller:units, decoration:InputDecoration(labelText:t('units'),
-            hintText:tr3('مثال: كرتون=24=500، باكت=6=120','Example: Carton=24=500, Pack=6=120','Exemple : Carton=24=500, Paquet=6=120')), maxLines:3),
+          TextField(controller:supplySalePrice,keyboardType:const TextInputType.numberWithOptions(decimal:true),
+            decoration:InputDecoration(labelText:tr3('سعر بيع وحدة التوريد','Supply-unit sale price','Prix de vente de l’unité d’approvisionnement'))),
+          const SizedBox(height:10),
+          TextField(controller:units, decoration:InputDecoration(labelText:tr3('وحدات التفرّع (من الأكبر إلى الأصغر)','Nested units (largest to smallest)','Unités imbriquées (de la plus grande à la plus petite)'),
+            hintText:tr3('مثال: كرتون=12، باكت=12 (كل معامل نسبةً إلى الوحدة الأصغر التالية)','Example: Carton=12, Pack=12 (each factor is relative to the next smaller unit)','Exemple : Carton=12, Paquet=12 (facteur relatif à la plus petite unité suivante)')), maxLines:3),
           Align(alignment:AlignmentDirectional.centerStart, child:Text(t('baseNote'),style:Theme.of(ctx).textTheme.bodySmall)),
         ])),
         actions:[
@@ -303,23 +308,16 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       )));
     if (result != true) return;
     if (name.text.trim().isEmpty || base.text.trim().isEmpty) { message(t('selectAll')); return; }
-    final unitRows=<Map<String,Object?>>[
-      {'unit_name':base.text.trim(),'factor_to_base':1.0,'sale_price_minor':((double.tryParse(baseSalePrice.text.replaceAll(',','.'))??0)*100).round()}
-    ];
     final parsedBasePrice=double.tryParse(baseSalePrice.text.replaceAll(',','.'));
-    if(parsedBasePrice==null||!parsedBasePrice.isFinite||parsedBasePrice<=0){
-      message(tr3('أدخل سعر بيع صحيحاً لوحدة الأساس','Enter a valid base-unit sale price','Saisissez un prix de vente valide pour l’unité de base'));return;
+    final parsedSupplyPrice=double.tryParse(supplySalePrice.text.replaceAll(',','.'));
+    if(parsedBasePrice==null||!parsedBasePrice.isFinite||parsedBasePrice<=0||
+      parsedSupplyPrice==null||!parsedSupplyPrice.isFinite||parsedSupplyPrice<=0){
+      message(tr3('أدخل سعراً صحيحاً لوحدة الأساس ووحدة التوريد','Enter valid base-unit and supply-unit sale prices','Saisissez des prix valides pour l’unité de base et l’unité d’approvisionnement'));return;
     }
     try {
-      for (final part in units.text.split(',')) {
-        if (part.trim().isEmpty) continue;
-        final bits=part.split('=');
-        if (bits.length!=3 || bits[0].trim().isEmpty) throw FormatException();
-        final factor=double.parse(bits[1].trim().replaceAll(',', '.'));
-        final unitPrice=double.parse(bits[2].trim().replaceAll(',', '.'));
-        if(!factor.isFinite||factor<=0||!unitPrice.isFinite||unitPrice<=0) throw FormatException();
-        unitRows.add({'unit_name':bits[0].trim(),'factor_to_base':factor,'sale_price_minor':(unitPrice*100).round()});
-      }
+      final unitRows=buildHierarchicalUnitDefinitions(
+        baseUnitName:base.text.trim(), baseSalePrice:parsedBasePrice,
+        supplySalePrice:parsedSupplyPrice, definitions:units.text);
       await db.saveProduct(name:name.text,baseUnit:base.text,trackingMode:mode,units:unitRows);
       await refresh(); message(t('created'));
     } catch (_) { message(t('badUnits')); }
@@ -478,7 +476,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if (productRows.isEmpty) { message(t('empty')); await addProduct(); return; }
     int? partyId=partyRows.first['id'] as int;
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
-    List<Map<String,Object?>> units=await db.listUnits(productId);
+    List<Map<String,Object?>> units=await db.listPurchaseUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController();
     final price=TextEditingController();
@@ -497,7 +495,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         DropdownButtonFormField<int>(
           value:productId,decoration:InputDecoration(labelText:t('product')),
           items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; expirySplits.clear(); }); }),
+          onChanged:(v) async { if(v==null)return; final u=await db.listPurchaseUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; expirySplits.clear(); }); }),
         const SizedBox(height:10),
         DropdownButtonFormField<int>(
           value:unitId,decoration:InputDecoration(labelText:t('unit')),
