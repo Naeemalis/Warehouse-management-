@@ -29,7 +29,7 @@ void main() {
     test('builds a single purchase unit with nested issue units and derived prices', () {
       final units = buildHierarchicalUnitDefinitions(
         baseUnitName: 'piece', baseSalePrice: 10, supplySalePrice: 500,
-        definitions: 'carton=12, pack=12',
+        definitions: 'carton=12، pack=12',
       );
       expect(units[1]['unit_name'], 'pack');
       expect(units[1]['factor_to_base'], 12.0);
