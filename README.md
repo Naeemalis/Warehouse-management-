@@ -25,6 +25,15 @@ Offline-first Android Warehouse Management System built with Flutter and SQLite.
 - Arabic, English and French translations for the current gallery, transaction and approval workflows; RTL for Arabic and LTR for English/French.
 - SQLite ledger, document line snapshots, approval history and audit entries for product edits.
 
+## Experimental local authentication and permissions (schema v8)
+- Added local account, role, permission, user-role, role-permission and per-user permission tables.
+- First Super Admin is created only through an explicit first-run bootstrap call; no default password is seeded.
+- Passwords are stored as PBKDF2-HMAC-SHA256 hashes with per-user random salts (210,000 iterations); failed login attempts trigger a temporary lockout.
+- Direct per-user permission decisions override role permissions; role-level denial takes precedence across multiple roles.
+- Competitor intelligence permissions (`competitors.view`, `competitors.edit`, `competitors.export`) are sensitive and are not granted to Super Admin or Admin roles by default.
+- This is the data/service foundation only. The login/setup UI and enforcement across every warehouse operation must be completed before enabling it for live use.
+- SQLite file encryption and secure key management are not yet implemented; local account authentication does not by itself protect database contents from device-level extraction.
+
 ## Build pipeline
 GitHub Actions workflow at .github/workflows/android.yml generates Android platform files, installs Flutter dependencies, runs static analysis and tests, builds a release APK, and uploads it as an artifact. Check the Actions tab for an actual run; a workflow file alone is not proof of a successful build.
 
