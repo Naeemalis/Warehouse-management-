@@ -1,10 +1,12 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
 import 'domain/unit_conversion.dart';
 
@@ -67,7 +69,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'ar': {
       'title':'إدارة المستودع','gallery':'معرض المنتجات','receive':'استلام بضاعة',
       'issue':'صرف بضاعة','approvals':'طلبات الاعتماد','add':'إضافة منتج',
-      'stock':'الرصيد بوحدة الأساس','empty':'لا توجد منتجات بعد','name':'اسم المنتج',
+      'stock':'الرصيد بوحدة الأساس','empty':'لا توجد منتجات بعد','name':'اسم المنتج','supplierName':'اسم المورد','customerName':'اسم العميل',
       'base':'وحدة الأساس','mode':'نوع الصنف','count':'عددي','weight':'وزني',
       'volume':'سائل/حجمي','units':'وحدات التعبئة الإضافية',
       'unitHint':'مثال: باكت=6، كرتون=24 (مقابل وحدة الأساس)',
@@ -87,7 +89,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'en': {
       'title':'Warehouse Management','gallery':'Product Gallery','receive':'Receive Goods',
       'issue':'Issue Goods','approvals':'Approval Queue','add':'Add Product',
-      'stock':'Base-unit balance','empty':'No products yet','name':'Product name',
+      'stock':'Base-unit balance','empty':'No products yet','name':'Product name','supplierName':'Supplier name','customerName':'Customer name',
       'base':'Base unit','mode':'Product type','count':'Countable','weight':'Weight',
       'volume':'Liquid / volume','units':'Additional packaging units',
       'unitHint':'Example: Pack=6, Carton=24 (in base units)',
@@ -107,7 +109,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'fr': {
       'title':'Gestion de l’entrepôt','gallery':'Catalogue des produits','receive':'Réception',
       'issue':'Sortie de stock','approvals':'Demandes d’approbation','add':'Ajouter un produit',
-      'stock':'Solde en unité de base','empty':'Aucun produit','name':'Nom du produit',
+      'stock':'Solde en unité de base','empty':'Aucun produit','name':'Nom du produit','supplierName':'Nom du fournisseur','customerName':'Nom du client',
       'base':'Unité de base','mode':'Type de produit','count':'Unité','weight':'Poids',
       'volume':'Liquide / volume','units':'Unités d’emballage supplémentaires',
       'unitHint':'Exemple : Paquet=6, Carton=24 (en unités de base)',
@@ -163,7 +165,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   @override
   Widget build(BuildContext context) => Directionality(
-    textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+    textDirection: rtl ? ui.TextDirection.rtl : ui.TextDirection.ltr,
     child: Scaffold(
       appBar: AppBar(
         title: Text(t('title')),
@@ -335,7 +337,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(customers.isEmpty){
       final c=TextEditingController();
       final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('name'))),
+        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('customerName'))),
         actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
       if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
       return;
@@ -465,7 +467,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       final controller=TextEditingController();
       final created=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
         title:Text(receiving?t('supplier'):t('customer')),
-        content:TextField(controller:controller,decoration:InputDecoration(labelText:t('name'))),
+        content:TextField(controller:controller,decoration:InputDecoration(labelText:t(receiving?'supplierName':'customerName'))),
         actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:Text(t('save')))]));
       if (created==true && controller.text.trim().isNotEmpty) {
         await db.saveParty(supplier:receiving,name:controller.text);
@@ -715,7 +717,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.7,
           child:Column(children:[
@@ -764,7 +766,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
                   content:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+                    TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
                     const SizedBox(height:8),
                     TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
                   ]),
@@ -790,7 +792,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.65,
           child:Column(children:[
@@ -842,7 +844,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.72,
           child:Column(children:[
@@ -885,7 +887,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
       title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+        TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
         const SizedBox(height:8),
         TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
       ]),
@@ -899,65 +901,158 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   String money(Object? minor) => (((minor as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2);
 
+  String pdfMoney(Object? minor) {
+    final value = ((minor as num?)?.toDouble() ?? 0) / 100;
+    return NumberFormat('#,##0.00', lang).format(value);
+  }
+
+  String pdfDate(Object? value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '');
+    if (parsed == null) return value?.toString() ?? '';
+    return DateFormat('yyyy-MM-dd HH:mm', lang).format(parsed);
+  }
+
+  pw.TextDirection get pdfTextDirection =>
+      rtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
-    final result=await db.documentDetails(documentId);
-    final doc=result['document'] as Map<String,Object?>;
-    final lines=result['lines'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
-    final isReceipt=doc['kind']=='receipt';
-    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
-      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
-        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
-          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
-          pw.SizedBox(height:10),
-          pw.Text('رقم السند: ${doc['document_no']}'),
-          pw.Text('التاريخ: ${doc['created_at']}'),
-          pw.Text('${isReceipt?'المورد':'العميل / الجهة'}: ${doc['party_name_snapshot']??''}'),
-          pw.SizedBox(height:10),
-          pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:9)))).toList()),
-            ...lines.map((line)=>pw.TableRow(children:[
-              '${line['product_name_snapshot']}','${line['entered_quantity']}','${line['unit_name_snapshot']}',
-              money(line['unit_price_minor']),money((line['entered_quantity'] as num)*(line['unit_price_minor'] as num)),
-            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:const pw.TextStyle(fontSize:9)))).toList())),
-          ]),
-          pw.SizedBox(height:10),
-          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:14))),
-        ],
-      )),
-    ]));
+    final result = await db.documentDetails(documentId);
+    final doc = result['document'] as Map<String, Object?>;
+    final lines = result['lines'] as List<Map<String, Object?>>;
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
+    );
+    final isReceipt = doc['kind'] == 'receipt';
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (context) => [
+        pw.Directionality(
+          textDirection: pdfTextDirection,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(child: pw.Text('NaeemSoft WMS',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              pw.Center(child: pw.Text(
+                isReceipt
+                    ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
+                    : tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie'),
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
+              )),
+              pw.SizedBox(height: 10),
+              pw.Text('${tr3('رقم السند', 'Document No.', 'N° du document')}: ${doc['document_no']}'),
+              pw.Text('${tr3('التاريخ', 'Date', 'Date')}: ${pdfDate(doc['created_at'])}'),
+              pw.Text('${isReceipt ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder.all(),
+                children: [
+                  pw.TableRow(children: [
+                    tr3('الصنف', 'Product', 'Produit'),
+                    tr3('الكمية', 'Quantity', 'Quantité'),
+                    tr3('الوحدة', 'Unit', 'Unité'),
+                    tr3('سعر الوحدة', 'Unit Price', 'Prix unitaire'),
+                    tr3('الإجمالي', 'Total', 'Total'),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(v, style: pw.TextStyle(font: SragFonts.bold!, fontSize: 9)),
+                  )).toList()),
+                  ...lines.map((line) => pw.TableRow(children: [
+                    '${line['product_name_snapshot']}',
+                    '${line['entered_quantity']}',
+                    '${line['unit_name_snapshot']}',
+                    pdfMoney(line['unit_price_minor']),
+                    pdfMoney((line['entered_quantity'] as num) * (line['unit_price_minor'] as num)),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(v, style: const pw.TextStyle(fontSize: 9)),
+                  )).toList())),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Align(
+                alignment: rtl ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+                child: pw.Text(
+                  '${tr3('الإجمالي', 'Grand Total', 'Total général')}: ${pdfMoney(doc['total_minor'])}',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ));
     return pdf.save();
   }
 
-  Future<Uint8List> buildStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+  Future<Uint8List> buildStatementPdf({
+    required bool supplier,
+    required Map<String, Object?> statement,
+  }) async {
     await SragFonts.load();
-    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
-    final entries=statement['entries'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
-    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
-      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
-        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
-          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
-          pw.Text('الطرف: ${party['name']}'),
-          pw.Text('تاريخ الطباعة: ${DateTime.now().toIso8601String()}'),
-          pw.SizedBox(height:10),
-          pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:8)))).toList()),
-            ...entries.map((e)=>pw.TableRow(children:[
-              '${e['document_no']}','${e['entry_date']}',money(e['debit_minor']),money(e['credit_minor']),money(e['balance_minor']),
-            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:const pw.TextStyle(fontSize:8)))).toList())),
-          ]),
-          pw.SizedBox(height:10),
-          pw.Text('إجمالي الفواتير: ${money(statement['total_debit_minor'])}'),
-          pw.Text('إجمالي المرتجعات: ${money(statement['total_returned_minor'])}'),
-          pw.Text('إجمالي الدفعات: ${money(statement['total_paid_minor'])}'),
-          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:13)),
-        ],
-      )),
-    ]));
+    final party = (supplier ? statement['supplier'] : statement['customer']) as Map<String, Object?>;
+    final entries = statement['entries'] as List<Map<String, Object?>>;
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
+    );
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (context) => [
+        pw.Directionality(
+          textDirection: pdfTextDirection,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(child: pw.Text('NaeemSoft WMS',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              pw.Center(child: pw.Text(
+                supplier
+                    ? tr3('كشف حساب مورد', 'Supplier Statement', 'Relevé fournisseur')
+                    : tr3('كشف حساب عميل', 'Customer Statement', 'Relevé client'),
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
+              )),
+              pw.Text('${tr3('الطرف', 'Party', 'Tiers')}: ${party['name']}'),
+              pw.Text('${tr3('تاريخ الطباعة', 'Print Date', 'Date d’impression')}: ${pdfDate(DateTime.now().toIso8601String())}'),
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder.all(),
+                children: [
+                  pw.TableRow(children: [
+                    tr3('المستند', 'Document', 'Document'),
+                    tr3('التاريخ', 'Date', 'Date'),
+                    tr3('مدين', 'Debit', 'Débit'),
+                    tr3('دائن', 'Credit', 'Crédit'),
+                    tr3('الرصيد', 'Balance', 'Solde'),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(4),
+                    child: pw.Text(v, style: pw.TextStyle(font: SragFonts.bold!, fontSize: 8)),
+                  )).toList()),
+                  ...entries.map((e) => pw.TableRow(children: [
+                    '${e['document_no']}',
+                    pdfDate(e['entry_date']),
+                    pdfMoney(e['debit_minor']),
+                    pdfMoney(e['credit_minor']),
+                    pdfMoney(e['balance_minor']),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(4),
+                    child: pw.Text(v, style: const pw.TextStyle(fontSize: 8)),
+                  )).toList())),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text('${tr3('إجمالي الفواتير', 'Total Invoices', 'Total des factures')}: ${pdfMoney(statement['total_debit_minor'])}'),
+              pw.Text('${tr3('إجمالي المرتجعات', 'Total Returns', 'Total des retours')}: ${pdfMoney(statement['total_returned_minor'])}'),
+              pw.Text('${tr3('إجمالي الدفعات', 'Total Payments', 'Total des paiements')}: ${pdfMoney(statement['total_paid_minor'])}'),
+              pw.Text(
+                '${tr3('الرصيد النهائي', 'Final Balance', 'Solde final')}: ${pdfMoney(statement['balance_minor'])}',
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ));
     return pdf.save();
   }
 
@@ -992,7 +1087,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.78,
           child:Column(children:[
@@ -1053,7 +1148,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.82,
           child:Column(children:[
@@ -1125,7 +1220,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.82,
           child:Column(children:[
