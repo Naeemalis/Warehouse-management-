@@ -69,7 +69,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'ar': {
       'title':'إدارة المستودع','gallery':'معرض المنتجات','receive':'استلام بضاعة',
       'issue':'صرف بضاعة','approvals':'طلبات الاعتماد','add':'إضافة منتج',
-      'stock':'الرصيد بوحدة الأساس','empty':'لا توجد منتجات بعد','name':'اسم المنتج',
+      'stock':'الرصيد بوحدة الأساس','empty':'لا توجد منتجات بعد','name':'اسم المنتج','supplierName':'اسم المورد','customerName':'اسم العميل',
       'base':'وحدة الأساس','mode':'نوع الصنف','count':'عددي','weight':'وزني',
       'volume':'سائل/حجمي','units':'وحدات التعبئة الإضافية',
       'unitHint':'مثال: باكت=6، كرتون=24 (مقابل وحدة الأساس)',
@@ -89,7 +89,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'en': {
       'title':'Warehouse Management','gallery':'Product Gallery','receive':'Receive Goods',
       'issue':'Issue Goods','approvals':'Approval Queue','add':'Add Product',
-      'stock':'Base-unit balance','empty':'No products yet','name':'Product name',
+      'stock':'Base-unit balance','empty':'No products yet','name':'Product name','supplierName':'Supplier name','customerName':'Customer name',
       'base':'Base unit','mode':'Product type','count':'Countable','weight':'Weight',
       'volume':'Liquid / volume','units':'Additional packaging units',
       'unitHint':'Example: Pack=6, Carton=24 (in base units)',
@@ -109,7 +109,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     'fr': {
       'title':'Gestion de l’entrepôt','gallery':'Catalogue des produits','receive':'Réception',
       'issue':'Sortie de stock','approvals':'Demandes d’approbation','add':'Ajouter un produit',
-      'stock':'Solde en unité de base','empty':'Aucun produit','name':'Nom du produit',
+      'stock':'Solde en unité de base','empty':'Aucun produit','name':'Nom du produit','supplierName':'Nom du fournisseur','customerName':'Nom du client',
       'base':'Unité de base','mode':'Type de produit','count':'Unité','weight':'Poids',
       'volume':'Liquide / volume','units':'Unités d’emballage supplémentaires',
       'unitHint':'Exemple : Paquet=6, Carton=24 (en unités de base)',
@@ -284,7 +284,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       builder:(ctx,setLocal) => AlertDialog(
         title:Text(t('add')),
         content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min, children:[
-          TextField(controller:name, decoration:InputDecoration(labelText:t('name'))),
+          TextField(controller:name, decoration:InputDecoration(labelText:t(receiving?'supplierName':'customerName'))),
           const SizedBox(height:10),
           TextField(controller:base, decoration:InputDecoration(labelText:t('base'))),
           const SizedBox(height:10),
@@ -691,7 +691,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
       title:Text(tr3('تعديل المنتج','Edit product','Modifier le produit')),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+        TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
         const SizedBox(height:8),
         TextField(controller:purchase,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('سعر الشراء','Purchase price','Prix d’achat'))),
         const SizedBox(height:8),
@@ -766,7 +766,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
                   content:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+                    TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
                     const SizedBox(height:8),
                     TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
                   ]),
