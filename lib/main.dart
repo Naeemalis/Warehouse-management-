@@ -925,7 +925,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
     );
-    final isReceipt = doc['kind'] == 'receipt';
+    final documentKind = doc['kind'];
+    final isSupplierDocument = documentKind == 'receipt' || documentKind == 'return_out';
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (context) => [
@@ -937,15 +938,19 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               pw.Center(child: pw.Text('NaeemSoft WMS',
                   style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
               pw.Center(child: pw.Text(
-                isReceipt
+                documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
-                    : tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie'),
+                    : documentKind == 'issue'
+                        ? tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie')
+                        : documentKind == 'return_in'
+                            ? tr3('مرتجع عميل', 'Customer Return', 'Retour client')
+                            : tr3('مرتجع مورد', 'Supplier Return', 'Retour fournisseur'),
                 style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
               )),
               pw.SizedBox(height: 10),
               pw.Text('${tr3('رقم السند', 'Document No.', 'N° du document')}: ${doc['document_no']}'),
               pw.Text('${tr3('التاريخ', 'Date', 'Date')}: ${pdfDate(doc['created_at'])}'),
-              pw.Text('${isReceipt ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
+              pw.Text('${isSupplierDocument ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
               pw.SizedBox(height: 10),
               pw.Table(
                 border: pw.TableBorder.all(),
