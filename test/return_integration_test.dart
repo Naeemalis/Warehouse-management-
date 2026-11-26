@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite/sqflite.dart' show databaseFactory;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:naeemsoft_wms/data/wms_database.dart';
 
@@ -17,7 +16,7 @@ void main() {
     final productId = await wms.saveProduct(
       name: 'Return Test Item',
       baseUnit: 'piece',
-      trackingMode: 'quantity',
+      trackingMode: 'count',
       units: [
         {'unit_name': 'piece', 'factor_to_base': 1.0, 'sale_price_minor': 100, 'is_purchase_unit': false},
         {'unit_name': 'carton', 'factor_to_base': 10.0, 'sale_price_minor': 900, 'is_purchase_unit': true},
