@@ -432,7 +432,7 @@ class WmsDatabase {
       final doc = docs.first;
       if (doc['status'] != 'pending_approval') throw StateError('Only pending documents can be approved');
       final kind = doc['kind'] as String;
-      if (kind != 'receipt' && kind != 'issue') throw StateError('Unsupported document kind in this milestone');
+      if (!['receipt','issue','return_in','return_out'].contains(kind)) throw StateError('Unsupported document kind');
       final lines = await txn.query('document_lines', where: 'document_id = ?', whereArgs: [documentId]);
       if (lines.isEmpty) throw StateError('Cannot approve an empty document');
       if (kind == 'issue') {
@@ -459,11 +459,12 @@ class WmsDatabase {
           }
         }
       }
+      if(kind=='return_in' || kind=='return_out') await _validateReturnDocument(txn,doc,excludingDocumentId:documentId);
       final now = DateTime.now().toIso8601String();
       for(final line in lines){
         final movementId=await txn.insert('stock_movements',{
           'document_id':documentId,'document_line_id':line['id'],
-          'product_id':line['product_id'],'direction':kind=='receipt'?'IN':'OUT',
+          'product_id':line['product_id'],'direction':(kind=='receipt'||kind=='return_in')?'IN':'OUT',
           'quantity_base':line['base_quantity'],'created_by':approverId,'created_at':now,
         });
         if(kind=='receipt'){
@@ -500,6 +501,65 @@ class WmsDatabase {
               });
             }
           }
+        }else if(kind=='return_out'){
+          final sourceLineId=line['reference_document_line_id'] as int;
+          final sourceMovementRows=await txn.query('stock_movements',
+            where:'document_line_id=? AND direction=?',whereArgs:[sourceLineId,'IN'],limit:1);
+          if(sourceMovementRows.isEmpty) throw StateError('Original receipt stock movement not found');
+          final sourceAllocations=await txn.query('stock_movement_allocations',
+            where:'stock_movement_id=?',whereArgs:[sourceMovementRows.first['id']],orderBy:'id');
+          var remaining=(line['base_quantity'] as num).toDouble();
+          for(final sourceAllocation in sourceAllocations){
+            if(remaining<=0.000001) break;
+            final batchId=sourceAllocation['batch_id'] as int;
+            final available=await _batchAvailableBase(txn,batchId);
+            if(available<=0.000001) continue;
+            final take=available<remaining?available:remaining;
+            final factor=(line['factor_to_base_snapshot'] as num).toDouble();
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batchId,
+              'quantity_base':take,'entered_quantity':take/factor,
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':factor,
+            });
+            remaining-=take;
+          }
+          if(remaining>0.000001) throw StateError('Insufficient available quantity in the original supplier batch');
+        }else if(kind=='return_in'){
+          final sourceLineId=line['reference_document_line_id'] as int;
+          final sourceMovementRows=await txn.query('stock_movements',
+            where:'document_line_id=? AND direction=?',whereArgs:[sourceLineId,'OUT'],limit:1);
+          if(sourceMovementRows.isEmpty) throw StateError('Original issue stock movement not found');
+          final sourceAllocations=await txn.query('stock_movement_allocations',
+            where:'stock_movement_id=?',whereArgs:[sourceMovementRows.first['id']],orderBy:'id');
+          var remaining=(line['base_quantity'] as num).toDouble();
+          for(final sourceAllocation in sourceAllocations){
+            if(remaining<=0.000001) break;
+            final batchId=sourceAllocation['batch_id'] as int;
+            final soldFromBatch=(sourceAllocation['quantity_base'] as num).toDouble();
+            final priorReturns=await txn.rawQuery("""
+              SELECT COALESCE(SUM(a.quantity_base),0) AS returned_base
+              FROM stock_movement_allocations a
+              JOIN stock_movements m ON m.id=a.stock_movement_id
+              JOIN documents d ON d.id=m.document_id
+              JOIN document_lines rl ON rl.id=m.document_line_id
+              WHERE a.batch_id=? AND m.direction='IN' AND d.kind='return_in'
+                AND rl.reference_document_line_id=?
+            """,[batchId,sourceLineId]);
+            final already=(priorReturns.first['returned_base'] as num).toDouble();
+            final capacity=soldFromBatch-already;
+            if(capacity<=0.000001) continue;
+            final take=capacity<remaining?capacity:remaining;
+            final factor=(line['factor_to_base_snapshot'] as num).toDouble();
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batchId,
+              'quantity_base':take,'entered_quantity':take/factor,
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':factor,
+            });
+            remaining-=take;
+          }
+          if(remaining>0.000001) throw StateError('Returned quantity cannot be matched to the original sold batches');
         }else{
           var remaining=(line['base_quantity'] as num).toDouble();
           final today=DateTime.now().toIso8601String().substring(0,10);
@@ -740,6 +800,10 @@ extension WmsCatalogOperations on WmsDatabase {
       final count = Sqflite.firstIntValue(await txn.rawQuery(
         'SELECT COUNT(*) FROM document_lines WHERE document_id=?', [documentId])) ?? 0;
       if (count == 0) throw StateError('Empty documents cannot be submitted');
+      final current=rows.first;
+      if(current['kind']=='return_in'||current['kind']=='return_out'){
+        await _validateReturnDocument(txn,current,excludingDocumentId:documentId);
+      }
       final now = DateTime.now().toIso8601String();
       await txn.update('documents', {'status':'pending_approval','submitted_at':now},
         where:'id=?', whereArgs:[documentId]);
