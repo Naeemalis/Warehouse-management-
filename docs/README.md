@@ -22,6 +22,7 @@
 | [SCREEN-TO-CODE-MAP.md](SCREEN-TO-CODE-MAP.md) | كل شاشة، الدوال التي تشغلها، وطبقة البيانات التي تستدعيها |
 | [SCREEN-FIELD-MAP.md](SCREEN-FIELD-MAP.md) | عناصر الإدخال في كل شاشة، متغيرات Dart، وأعمدة SQLite التي تحفظها |
 | [CODE-REFERENCE.md](CODE-REFERENCE.md) | وظيفة دوال قاعدة البيانات ومدخلاتها ومخرجاتها والجداول التي تتعامل معها |
+| [FUNCTION-FIELD-TRACE.md](FUNCTION-FIELD-TRACE.md) | تتبع الدوال: الحقول المقروءة والمكتوبة وتأثيرها على المخزون والحسابات |
 | [VERIFICATION-STATUS.md](VERIFICATION-STATUS.md) | حالة الاختبارات والتحقق والقيود المعروفة في لقطة المصدر |
 
 ## قاعدة التوثيق
