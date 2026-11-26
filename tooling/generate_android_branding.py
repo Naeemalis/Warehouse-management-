@@ -21,6 +21,10 @@ def png_chunk(kind, data):
     return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
 
 def make_icon(size):
+    # Use the approved NaeemSoft launcher artwork, pre-cropped with transparent corners.
+    return Path("tooling/naeemsoft_icon.png").read_bytes()
+
+    # Legacy procedural icon retained below as an unreachable fallback.
     navy, panel = (15, 35, 65, 255), (23, 53, 91, 255)
     gold, white = (244, 190, 70, 255), (245, 248, 252, 255)
     img = [[navy for _ in range(size)] for _ in range(size)]
