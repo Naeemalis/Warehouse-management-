@@ -284,7 +284,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       builder:(ctx,setLocal) => AlertDialog(
         title:Text(t('add')),
         content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min, children:[
-          TextField(controller:name, decoration:InputDecoration(labelText:t(receiving?'supplierName':'customerName'))),
+          TextField(controller:name, decoration:InputDecoration(labelText:t('name'))),
           const SizedBox(height:10),
           TextField(controller:base, decoration:InputDecoration(labelText:t('base'))),
           const SizedBox(height:10),
@@ -337,7 +337,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(customers.isEmpty){
       final c=TextEditingController();
       final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('name'))),
+        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('customerName'))),
         actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
       if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
       return;
@@ -691,7 +691,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
       title:Text(tr3('تعديل المنتج','Edit product','Modifier le produit')),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
+        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
         const SizedBox(height:8),
         TextField(controller:purchase,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:InputDecoration(labelText:tr3('سعر الشراء','Purchase price','Prix d’achat'))),
         const SizedBox(height:8),
@@ -766,7 +766,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
                   content:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
+                    TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
                     const SizedBox(height:8),
                     TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
                   ]),
@@ -887,7 +887,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
       title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t('name'))),
+        TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
         const SizedBox(height:8),
         TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
       ]),
