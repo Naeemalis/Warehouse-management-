@@ -130,6 +130,7 @@ class WmsDatabase {
     return _database!;
   }
 
+  /// Creates the core schema, indexes, defaults, and traceability tables for a new database.
   Future<void> _createSchema(Database db, int version) async {
     await db.execute('''CREATE TABLE products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,6 +244,7 @@ class WmsDatabase {
     await _createExpiryTraceabilitySchema(db);
   }
 
+  /// Creates expiry-split, stock-batch, and movement-allocation tables when absent.
   Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
     await db.execute('''CREATE TABLE IF NOT EXISTS document_line_expiry_splits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,6 +292,7 @@ class WmsDatabase {
   }
 
 
+  /// Calculates remaining base quantity in one batch from its movement allocations.
   Future<double> _batchAvailableBase(DatabaseExecutor txn, int batchId) async {
     final rows = await txn.rawQuery("""
       SELECT b.received_quantity_base-COALESCE((
@@ -304,6 +307,7 @@ class WmsDatabase {
     return (rows.first['available_base'] as num).toDouble();
   }
 
+  /// Sums pending and approved return quantities against one original invoice line.
   Future<double> _activeReturnedBase(DatabaseExecutor txn, int sourceLineId, {int? excludingDocumentId}) async {
     final rows=await txn.rawQuery("""
       SELECT COALESCE(SUM(l.base_quantity),0) AS returned_base
@@ -316,6 +320,7 @@ class WmsDatabase {
     return (rows.first['returned_base'] as num).toDouble();
   }
 
+  /// Validates return direction, approved source, source lines, return limits, and source batches.
   Future<void> _validateReturnDocument(DatabaseExecutor txn, Map<String,Object?> doc, {int? excludingDocumentId}) async {
     final kind=doc['kind'] as String;
     if(kind!='return_in' && kind!='return_out') return;
@@ -610,6 +615,7 @@ class WmsDatabase {
     });
   }
 
+  /// Records physical delivery details for an approved issue document.
   Future<void> confirmDelivery({required int documentId, required int userId, required String recipientName, String? signatureNote}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -651,12 +657,14 @@ extension WmsCatalogOperations on WmsDatabase {
     ''');
   }
 
+  /// Returns active issue/sale units, conversion factors, and configured sale prices.
   Future<List<Map<String, Object?>>> listUnits(int productId) async {
     final db = await database;
     return db.query('product_units', where: 'product_id=? AND is_active=1',
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  /// Returns the active purchase unit configured for the selected product.
   Future<List<Map<String, Object?>>> listPurchaseUnits(int productId) async {
     final db = await database;
     return db.query('product_units',
@@ -664,6 +672,7 @@ extension WmsCatalogOperations on WmsDatabase {
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  /// Creates a product and its nested packaging-unit definitions in one transaction.
   Future<int> saveProduct({
     required String name,
     required String baseUnit,
@@ -704,6 +713,7 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Lists active suppliers or customers from the selected party table.
   Future<List<Map<String, Object?>>> listParties(String table) async {
     if (table != 'suppliers' && table != 'customers') {
       throw ArgumentError('Unsupported party table');
