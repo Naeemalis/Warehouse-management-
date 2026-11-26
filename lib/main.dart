@@ -173,7 +173,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           PopupMenuButton<String>(
             icon: const Icon(Icons.menu),
             onSelected: (v) {
-              if(v=='docs') showDocuments();
+              if(v=='returns') showReturns();
+              else if(v=='docs') showDocuments();
               else if(v=='statement') showCustomerAccounts();
               else if(v=='supplierStatement') showSupplierAccounts();
               else if(v=='issues') showDocuments(kind:'issue');
@@ -183,6 +184,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
             },
             itemBuilder: (_) => [
+              PopupMenuItem(value:'returns',child:Text(tr3('المرتجعات','Returns','Retours'))),
               PopupMenuItem(value:'docs',child:Text(tr3('الفواتير','Invoices','Factures'))),
               PopupMenuItem(value:'statement',child:Text(tr3('كشف حساب عميل والدفعات','Customer statement & payments','Relevé client et paiements'))),
               PopupMenuItem(value:'supplierStatement',child:Text(tr3('كشف حساب المورد والدفعات','Supplier statement & payments','Relevé fournisseur et paiements'))),
@@ -856,7 +858,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 final doc=pending[i];
                 return Card(child:ListTile(
                   title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
-                  subtitle:Text(doc['kind']=='receipt'?t('receipt'):t('issue')),
+                  subtitle:Text(doc['kind']=='receipt'?t('receipt')
+                    :doc['kind']=='issue'?t('issue')
+                    :doc['kind']=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
+                    :tr3('مرتجع مورد','Supplier return','Retour fournisseur')),
                   isThreeLine:false,
                   trailing:Wrap(spacing:4,children:[
                     IconButton(tooltip:t('approve'),icon:const Icon(Icons.check_circle,color:Colors.green),onPressed:() async {
@@ -923,7 +928,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
     );
-    final isReceipt = doc['kind'] == 'receipt';
+    final documentKind = doc['kind'];
+    final isSupplierDocument = documentKind == 'receipt' || documentKind == 'return_out';
     pdf.addPage(pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       build: (context) => [
@@ -935,15 +941,19 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               pw.Center(child: pw.Text('NaeemSoft WMS',
                   style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
               pw.Center(child: pw.Text(
-                isReceipt
+                documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
-                    : tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie'),
+                    : documentKind == 'issue'
+                        ? tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie')
+                        : documentKind == 'return_in'
+                            ? tr3('مرتجع عميل', 'Customer Return', 'Retour client')
+                            : tr3('مرتجع مورد', 'Supplier Return', 'Retour fournisseur'),
                 style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
               )),
               pw.SizedBox(height: 10),
               pw.Text('${tr3('رقم السند', 'Document No.', 'N° du document')}: ${doc['document_no']}'),
               pw.Text('${tr3('التاريخ', 'Date', 'Date')}: ${pdfDate(doc['created_at'])}'),
-              pw.Text('${isReceipt ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
+              pw.Text('${isSupplierDocument ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
               pw.SizedBox(height: 10),
               pw.Table(
                 border: pw.TableBorder.all(),
@@ -1082,6 +1092,130 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+
+  Future<void> showReturns() async {
+    String returnKind='return_in';
+    String sourceKind='issue';
+    List<Map<String,Object?>> sourceDocs=(await db.listDocuments(kind:sourceKind))
+        .where((d)=>d['status']=='approved').toList();
+    int? selectedId=sourceDocs.isEmpty?null:sourceDocs.first['id'] as int;
+    List<Map<String,Object?>> sourceLines=selectedId==null?[]:await db.returnableDocumentLines(selectedId);
+    final quantities=<int,TextEditingController>{};
+    for(final line in sourceLines){quantities[line['id'] as int]=TextEditingController();}
+    if(!mounted)return;
+    await showModalBottomSheet<void>(
+      context:context,isScrollControlled:true,
+      builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
+        child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
+          height:MediaQuery.of(ctx).size.height*.84,
+          child:Column(children:[
+            Text(tr3('إنشاء مرتجع','Create a return','Créer un retour'),style:Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height:10),
+            DropdownButtonFormField<String>(
+              value:returnKind,
+              decoration:InputDecoration(labelText:tr3('نوع المرتجع','Return type','Type de retour')),
+              items:[
+                DropdownMenuItem(value:'return_in',child:Text(tr3('مرتجع عميل','Customer return','Retour client'))),
+                DropdownMenuItem(value:'return_out',child:Text(tr3('مرتجع مورد','Supplier return','Retour fournisseur'))),
+              ],
+              onChanged:(v) async {
+                if(v==null)return;
+                final nextSource=v=='return_in'?'issue':'receipt';
+                final found=(await db.listDocuments(kind:nextSource)).where((d)=>d['status']=='approved').toList();
+                final nextId=found.isEmpty?null:found.first['id'] as int;
+                final nextLines=nextId==null? <Map<String,Object?>>[] : await db.returnableDocumentLines(nextId);
+                for(final c in quantities.values){c.dispose();}
+                quantities.clear();
+                for(final line in nextLines){quantities[line['id'] as int]=TextEditingController();}
+                if(ctx.mounted)setSheet((){returnKind=v;sourceKind=nextSource;sourceDocs=found;selectedId=nextId;sourceLines=nextLines;});
+              },
+            ),
+            const SizedBox(height:8),
+            DropdownButtonFormField<int>(
+              value:selectedId,
+              isExpanded:true,
+              decoration:InputDecoration(labelText:tr3('الفاتورة الأصلية المعتمدة','Approved original invoice','Facture originale approuvée')),
+              items:sourceDocs.map((d)=>DropdownMenuItem<int>(
+                value:d['id'] as int,
+                child:Text(d['document_no'].toString()+' · '+(d['party_name_snapshot']??'').toString()),
+              )).toList(),
+              onChanged:(v) async {
+                if(v==null)return;
+                final found=await db.returnableDocumentLines(v);
+                for(final c in quantities.values){c.dispose();}
+                quantities.clear();
+                for(final line in found){quantities[line['id'] as int]=TextEditingController();}
+                if(ctx.mounted)setSheet((){selectedId=v;sourceLines=found;});
+              },
+            ),
+            const SizedBox(height:8),
+            Expanded(child:sourceDocs.isEmpty
+              ?Center(child:Text(tr3('لا توجد فواتير معتمدة قابلة للمرتجع','No approved invoices available for return','Aucune facture approuvée disponible pour retour')))
+              :sourceLines.isEmpty
+                ?Center(child:Text(tr3('لا توجد كميات متبقية للمرتجع','No remaining quantities to return','Aucune quantité restante à retourner')))
+                :ListView.separated(
+                  itemCount:sourceLines.length,
+                  separatorBuilder:(_,__)=>const Divider(height:1),
+                  itemBuilder:(ctx,i){
+                    final line=sourceLines[i];
+                    final remaining=(line['remaining_base'] as num).toDouble()/
+                      (line['factor_to_base_snapshot'] as num).toDouble();
+                    return ListTile(
+                      contentPadding:EdgeInsets.zero,
+                      title:Text(line['product_name_snapshot'].toString()),
+                      subtitle:Text(
+                        tr3('المتبقي للمرتجع','Remaining returnable','Restant à retourner')+
+                        ': '+remaining.toStringAsFixed(3)+' '+line['unit_name_snapshot'].toString(),
+                      ),
+                      trailing:SizedBox(width:104,child:TextField(
+                        controller:quantities[line['id'] as int],
+                        keyboardType:const TextInputType.numberWithOptions(decimal:true),
+                        decoration:InputDecoration(
+                          isDense:true,
+                          labelText:tr3('الكمية','Quantity','Quantité'),
+                          hintText:'0',
+                        ),
+                      )),
+                    );
+                  },
+                )),
+            const SizedBox(height:8),
+            SizedBox(width:double.infinity,child:FilledButton.icon(
+              onPressed:sourceDocs.isEmpty||selectedId==null?null:() async {
+                final selected=<Map<String,Object?>>[];
+                for(final line in sourceLines){
+                  final controller=quantities[line['id'] as int];
+                  final qty=double.tryParse(controller?.text.trim().replaceAll(',','.')??'')??0;
+                  if(qty>0)selected.add({'source_line_id':line['id'],'quantity':qty});
+                }
+                if(selected.isEmpty){
+                  message(tr3('أدخل كمية مرتجع واحدة على الأقل','Enter at least one return quantity','Saisissez au moins une quantité à retourner'));
+                  return;
+                }
+                try{
+                  final id=await db.createReturnDocument(
+                    originalDocumentId:selectedId!,
+                    kind:returnKind,
+                    createdBy:1,
+                    lines:selected,
+                  );
+                  await db.submitDocument(documentId:id,userId:1);
+                  if(ctx.mounted)Navigator.pop(ctx);
+                  await refresh();
+                  message(tr3('تم إرسال المرتجع للموافقة','Return submitted for approval','Retour soumis pour approbation'));
+                }catch(e){message(e.toString());}
+              },
+              icon:const Icon(Icons.assignment_return),
+              label:Text(tr3('إرسال المرتجع للموافقة','Submit return for approval','Soumettre le retour pour approbation')),
+            )),
+          ]),
+        )))),
+      ),
+    );
+    for(final c in quantities.values){c.dispose();}
+  }
+
   Future<void> showDocuments({String? kind}) async {
     final docs=await db.listDocuments(kind:kind);
     if(!mounted)return;
@@ -1096,11 +1230,15 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             Expanded(child:docs.isEmpty?Center(child:Text(tr3('لا توجد فواتير','No documents','Aucun document'))):ListView.builder(
               itemCount:docs.length,itemBuilder:(ctx,i){
                 final d=docs[i];
-                final isReceipt=d['kind']=='receipt';
+                final kind=d['kind'];
+                final kindLabel=kind=='receipt'?tr3('استلام','Receipt','Réception')
+                  :kind=='issue'?tr3('صرف','Issue','Sortie')
+                  :kind=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
+                  :tr3('مرتجع مورد','Supplier return','Retour fournisseur');
                 return Card(child:ListTile(
-                  leading:Icon(isReceipt?Icons.move_to_inbox:Icons.outbox),
+                  leading:Icon(kind=='receipt'?Icons.move_to_inbox:kind=='issue'?Icons.outbox:Icons.assignment_return),
                   title:Text('${d['document_no']} · ${d['party_name_snapshot']??''}'),
-                  subtitle:Text('${isReceipt?tr3('استلام','Receipt','Réception'):tr3('صرف','Issue','Sortie')} · ${d['status']} · ${money(d['total_minor'])}'),
+                  subtitle:Text('${kindLabel} · ${d['status']} · ${money(d['total_minor'])}'),
                   trailing:const Icon(Icons.chevron_right),
                   onTap:()=>showDocumentDetails(d['id'] as int),
                 ));

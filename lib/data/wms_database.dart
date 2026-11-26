@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 6,
+      version: 7,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -59,9 +59,9 @@ class WmsDatabase {
             var remaining=(m['quantity_base'] as num).toDouble();
             final batches=await db.rawQuery("""
               SELECT b.*,b.received_quantity_base-COALESCE((
-                SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
                 JOIN stock_movements sm ON sm.id=a.stock_movement_id
-                WHERE a.batch_id=b.id AND sm.direction='OUT'
+                WHERE a.batch_id=b.id
               ),0) available_base
               FROM stock_batches b WHERE b.product_id=? ORDER BY b.created_at,b.id
             """,[m['product_id']]);
@@ -91,6 +91,11 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 7) {
+          await db.execute("ALTER TABLE documents ADD COLUMN reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT");
+          await db.execute("ALTER TABLE document_lines ADD COLUMN reference_document_line_id INTEGER REFERENCES document_lines(id) ON DELETE RESTRICT");
+          await db.execute("CREATE INDEX idx_document_lines_reference ON document_lines(reference_document_line_id)");
         }
         if (oldVersion < 6) {
           await db.execute("ALTER TABLE product_units ADD COLUMN is_purchase_unit INTEGER NOT NULL DEFAULT 0");
@@ -165,7 +170,7 @@ class WmsDatabase {
       kind TEXT NOT NULL CHECK(kind IN ('receipt','issue','transfer','return_in','return_out','adjustment')),
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending_approval','approved','rejected','cancelled')),
       party_type TEXT CHECK(party_type IN ('supplier','customer','department','warehouse')),
-      party_id INTEGER, party_name_snapshot TEXT, notes TEXT,
+      party_id INTEGER, party_name_snapshot TEXT, notes TEXT, reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT,
       created_by INTEGER, created_at TEXT NOT NULL, submitted_at TEXT,
       approved_by INTEGER, approved_at TEXT, rejection_reason TEXT,
       delivery_status TEXT NOT NULL DEFAULT 'not_ready' CHECK(delivery_status IN ('not_ready','awaiting_delivery','delivered','partially_delivered')),
@@ -180,7 +185,8 @@ class WmsDatabase {
       factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0),
       base_quantity REAL NOT NULL CHECK(base_quantity > 0),
       unit_price_minor INTEGER NOT NULL DEFAULT 0,
-      packaging_note TEXT, created_at TEXT NOT NULL
+      packaging_note TEXT, created_at TEXT NOT NULL,
+      reference_document_line_id INTEGER REFERENCES document_lines(id) ON DELETE RESTRICT
     )''');
     await db.execute('''CREATE TABLE stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,6 +234,7 @@ class WmsDatabase {
     await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
     await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
+    await db.execute('CREATE INDEX idx_document_lines_reference ON document_lines(reference_document_line_id)');
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
@@ -278,6 +285,144 @@ class WmsDatabase {
     return (rows.first['balance'] as num?)?.toDouble() ?? 0;
   }
 
+
+  Future<double> _batchAvailableBase(DatabaseExecutor txn, int batchId) async {
+    final rows = await txn.rawQuery("""
+      SELECT b.received_quantity_base-COALESCE((
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END)
+        FROM stock_movement_allocations a
+        JOIN stock_movements m ON m.id=a.stock_movement_id
+        WHERE a.batch_id=b.id
+      ),0) AS available_base
+      FROM stock_batches b WHERE b.id=?
+    """,[batchId]);
+    if(rows.isEmpty) throw StateError('Original stock batch not found');
+    return (rows.first['available_base'] as num).toDouble();
+  }
+
+  Future<double> _activeReturnedBase(DatabaseExecutor txn, int sourceLineId, {int? excludingDocumentId}) async {
+    final rows=await txn.rawQuery("""
+      SELECT COALESCE(SUM(l.base_quantity),0) AS returned_base
+      FROM document_lines l JOIN documents d ON d.id=l.document_id
+      WHERE l.reference_document_line_id=?
+        AND d.kind IN ('return_in','return_out')
+        AND d.status IN ('pending_approval','approved')
+        AND (? IS NULL OR d.id<>?)
+    """,[sourceLineId,excludingDocumentId,excludingDocumentId]);
+    return (rows.first['returned_base'] as num).toDouble();
+  }
+
+  Future<void> _validateReturnDocument(DatabaseExecutor txn, Map<String,Object?> doc, {int? excludingDocumentId}) async {
+    final kind=doc['kind'] as String;
+    if(kind!='return_in' && kind!='return_out') return;
+    final sourceKind=kind=='return_in'?'issue':'receipt';
+    final sourceId=doc['reference_document_id'] as int?;
+    if(sourceId==null) throw StateError('Return must reference its original invoice');
+    final sourceDocs=await txn.query('documents',where:'id=? AND kind=? AND status=?',
+      whereArgs:[sourceId,sourceKind,'approved'],limit:1);
+    if(sourceDocs.isEmpty) throw StateError('Original invoice is not approved or does not match this return');
+    final lines=await txn.query('document_lines',where:'document_id=?',whereArgs:[doc['id']]);
+    for(final line in lines){
+      final sourceLineId=line['reference_document_line_id'] as int?;
+      if(sourceLineId==null) throw StateError('Every return line must reference an original invoice line');
+      final sourceLines=await txn.query('document_lines',where:'id=? AND document_id=?',
+        whereArgs:[sourceLineId,sourceId],limit:1);
+      if(sourceLines.isEmpty) throw StateError('Original invoice line not found');
+      final source=sourceLines.first;
+      if(source['product_id']!=line['product_id']) throw StateError('Return product does not match the original invoice line');
+      final returned=await _activeReturnedBase(txn,sourceLineId,excludingDocumentId:excludingDocumentId);
+      final thisBase=(line['base_quantity'] as num).toDouble();
+      final originalBase=(source['base_quantity'] as num).toDouble();
+      if(returned+thisBase>originalBase+0.000001) {
+        throw StateError('Return quantity exceeds the unreturned quantity on the original invoice');
+      }
+      if(kind=='return_out'){
+        final movements=await txn.query('stock_movements',where:'document_line_id=? AND direction=?',
+          whereArgs:[sourceLineId,'IN'],limit:1);
+        if(movements.isEmpty) throw StateError('Original supplier receipt has no posted stock batch');
+        final allocations=await txn.query('stock_movement_allocations',
+          where:'stock_movement_id=?',whereArgs:[movements.first['id']]);
+        var available=0.0;
+        for(final allocation in allocations){
+          final batchId=allocation['batch_id'] as int;
+          final batchAvailable=await _batchAvailableBase(txn,batchId);
+          available+=batchAvailable<0?0:batchAvailable;
+        }
+        final otherPending=await txn.rawQuery("""
+          SELECT COALESCE(SUM(l.base_quantity),0) AS qty
+          FROM document_lines l JOIN documents d ON d.id=l.document_id
+          WHERE l.reference_document_line_id=? AND d.kind='return_out'
+            AND d.status='pending_approval' AND d.id<>?
+        """,[sourceLineId,excludingDocumentId??-1]);
+        final reserved=(otherPending.first['qty'] as num).toDouble();
+        if(reserved+thisBase>available+0.000001){
+          throw StateError('Returned supplier goods exceed the available quantity from the original receipt batch');
+        }
+      }
+    }
+  }
+
+  Future<int> createReturnDocument({
+    required int originalDocumentId,
+    required String kind,
+    required int createdBy,
+    required List<Map<String,Object?>> lines,
+    String? notes,
+  }) async {
+    if(kind!='return_in' && kind!='return_out') throw ArgumentError('Unsupported return kind');
+    if(lines.isEmpty) throw ArgumentError('Return must contain at least one line');
+    final db=await database;
+    return db.transaction((txn) async {
+      final sourceRows=await txn.query('documents',where:'id=? AND status=?',
+        whereArgs:[originalDocumentId,'approved'],limit:1);
+      if(sourceRows.isEmpty) throw StateError('Original invoice must be approved');
+      final source=sourceRows.first;
+      final expectedKind=kind=='return_in'?'issue':'receipt';
+      final expectedParty=kind=='return_in'?'customer':'supplier';
+      if(source['kind']!=expectedKind || source['party_type']!=expectedParty){
+        throw StateError('Return type does not match the original invoice');
+      }
+      final now=DateTime.now().toIso8601String();
+      final stamp=DateTime.now().microsecondsSinceEpoch;
+      final docId=await txn.insert('documents',{
+        'document_no':(kind=='return_in'?'RTI':'RTO')+'-'+stamp.toString(),
+        'kind':kind,'status':'draft','party_type':source['party_type'],
+        'party_id':source['party_id'],'party_name_snapshot':source['party_name_snapshot'],
+        'notes':notes,'created_by':createdBy,'created_at':now,
+        'reference_document_id':originalDocumentId,
+      });
+      final usedLines=<int>{};
+      for(final input in lines){
+        final sourceLineId=input['source_line_id'] as int;
+        if(!usedLines.add(sourceLineId)) throw ArgumentError('Duplicate original invoice line in return');
+        final sourceLineRows=await txn.query('document_lines',where:'id=? AND document_id=?',
+          whereArgs:[sourceLineId,originalDocumentId],limit:1);
+        if(sourceLineRows.isEmpty) throw StateError('Original invoice line not found');
+        final sourceLine=sourceLineRows.first;
+        final qty=(input['quantity'] as num).toDouble();
+        if(!qty.isFinite || qty<=0) throw ArgumentError('Return quantity must be positive');
+        final factor=(sourceLine['factor_to_base_snapshot'] as num).toDouble();
+        final baseQty=convertToBaseQuantity(enteredQuantity:qty,factorToBase:factor);
+        final already=await _activeReturnedBase(txn,sourceLineId);
+        if(already+baseQty>(sourceLine['base_quantity'] as num).toDouble()+0.000001){
+          throw StateError('Return quantity exceeds the unreturned quantity on the original invoice');
+        }
+        await txn.insert('document_lines',{
+          'document_id':docId,'product_id':sourceLine['product_id'],
+          'product_name_snapshot':sourceLine['product_name_snapshot'],
+          'unit_name_snapshot':sourceLine['unit_name_snapshot'],
+          'entered_quantity':qty,'factor_to_base_snapshot':factor,
+          'base_quantity':baseQty,'unit_price_minor':sourceLine['unit_price_minor'],
+          'packaging_note':input['reason'],'created_at':now,
+          'reference_document_line_id':sourceLineId,
+        });
+      }
+      final docRows=await txn.query('documents',where:'id=?',whereArgs:[docId],limit:1);
+      await _validateReturnDocument(txn,docRows.first);
+      return docId;
+    });
+  }
+
   // Only pending documents can be approved. Posting and status transition are atomic.
   Future<void> approveDocument({required int documentId, required int approverId}) async {
     final db = await database;
@@ -287,7 +432,7 @@ class WmsDatabase {
       final doc = docs.first;
       if (doc['status'] != 'pending_approval') throw StateError('Only pending documents can be approved');
       final kind = doc['kind'] as String;
-      if (kind != 'receipt' && kind != 'issue') throw StateError('Unsupported document kind in this milestone');
+      if (!['receipt','issue','return_in','return_out'].contains(kind)) throw StateError('Unsupported document kind');
       final lines = await txn.query('document_lines', where: 'document_id = ?', whereArgs: [documentId]);
       if (lines.isEmpty) throw StateError('Cannot approve an empty document');
       if (kind == 'issue') {
@@ -314,11 +459,12 @@ class WmsDatabase {
           }
         }
       }
+      if(kind=='return_in' || kind=='return_out') await _validateReturnDocument(txn,doc,excludingDocumentId:documentId);
       final now = DateTime.now().toIso8601String();
       for(final line in lines){
         final movementId=await txn.insert('stock_movements',{
           'document_id':documentId,'document_line_id':line['id'],
-          'product_id':line['product_id'],'direction':kind=='receipt'?'IN':'OUT',
+          'product_id':line['product_id'],'direction':(kind=='receipt'||kind=='return_in')?'IN':'OUT',
           'quantity_base':line['base_quantity'],'created_by':approverId,'created_at':now,
         });
         if(kind=='receipt'){
@@ -355,14 +501,73 @@ class WmsDatabase {
               });
             }
           }
+        }else if(kind=='return_out'){
+          final sourceLineId=line['reference_document_line_id'] as int;
+          final sourceMovementRows=await txn.query('stock_movements',
+            where:'document_line_id=? AND direction=?',whereArgs:[sourceLineId,'IN'],limit:1);
+          if(sourceMovementRows.isEmpty) throw StateError('Original receipt stock movement not found');
+          final sourceAllocations=await txn.query('stock_movement_allocations',
+            where:'stock_movement_id=?',whereArgs:[sourceMovementRows.first['id']],orderBy:'id');
+          var remaining=(line['base_quantity'] as num).toDouble();
+          for(final sourceAllocation in sourceAllocations){
+            if(remaining<=0.000001) break;
+            final batchId=sourceAllocation['batch_id'] as int;
+            final available=await _batchAvailableBase(txn,batchId);
+            if(available<=0.000001) continue;
+            final take=available<remaining?available:remaining;
+            final factor=(line['factor_to_base_snapshot'] as num).toDouble();
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batchId,
+              'quantity_base':take,'entered_quantity':take/factor,
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':factor,
+            });
+            remaining-=take;
+          }
+          if(remaining>0.000001) throw StateError('Insufficient available quantity in the original supplier batch');
+        }else if(kind=='return_in'){
+          final sourceLineId=line['reference_document_line_id'] as int;
+          final sourceMovementRows=await txn.query('stock_movements',
+            where:'document_line_id=? AND direction=?',whereArgs:[sourceLineId,'OUT'],limit:1);
+          if(sourceMovementRows.isEmpty) throw StateError('Original issue stock movement not found');
+          final sourceAllocations=await txn.query('stock_movement_allocations',
+            where:'stock_movement_id=?',whereArgs:[sourceMovementRows.first['id']],orderBy:'id');
+          var remaining=(line['base_quantity'] as num).toDouble();
+          for(final sourceAllocation in sourceAllocations){
+            if(remaining<=0.000001) break;
+            final batchId=sourceAllocation['batch_id'] as int;
+            final soldFromBatch=(sourceAllocation['quantity_base'] as num).toDouble();
+            final priorReturns=await txn.rawQuery("""
+              SELECT COALESCE(SUM(a.quantity_base),0) AS returned_base
+              FROM stock_movement_allocations a
+              JOIN stock_movements m ON m.id=a.stock_movement_id
+              JOIN documents d ON d.id=m.document_id
+              JOIN document_lines rl ON rl.id=m.document_line_id
+              WHERE a.batch_id=? AND m.direction='IN' AND d.kind='return_in'
+                AND rl.reference_document_line_id=?
+            """,[batchId,sourceLineId]);
+            final already=(priorReturns.first['returned_base'] as num).toDouble();
+            final capacity=soldFromBatch-already;
+            if(capacity<=0.000001) continue;
+            final take=capacity<remaining?capacity:remaining;
+            final factor=(line['factor_to_base_snapshot'] as num).toDouble();
+            await txn.insert('stock_movement_allocations',{
+              'stock_movement_id':movementId,'batch_id':batchId,
+              'quantity_base':take,'entered_quantity':take/factor,
+              'unit_name_snapshot':line['unit_name_snapshot'],
+              'factor_to_base_snapshot':factor,
+            });
+            remaining-=take;
+          }
+          if(remaining>0.000001) throw StateError('Returned quantity cannot be matched to the original sold batches');
         }else{
           var remaining=(line['base_quantity'] as num).toDouble();
           final today=DateTime.now().toIso8601String().substring(0,10);
           final batches=await txn.rawQuery("""
             SELECT b.*,b.received_quantity_base-COALESCE((
-              SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
               JOIN stock_movements sm ON sm.id=a.stock_movement_id
-              WHERE a.batch_id=b.id AND sm.direction='OUT'
+              WHERE a.batch_id=b.id
             ),0) available_base
             FROM stock_batches b
             WHERE b.product_id=? AND (b.expiry_date IS NULL OR b.expiry_date>=?)
@@ -425,9 +630,9 @@ extension WmsCatalogOperations on WmsDatabase {
         (SELECT MIN(b.expiry_date) FROM stock_batches b
           WHERE b.product_id=p.id AND b.expiry_date IS NOT NULL
           AND b.received_quantity_base-COALESCE((
-            SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
             JOIN stock_movements om ON om.id=a.stock_movement_id
-            WHERE a.batch_id=b.id AND om.direction='OUT'
+            WHERE a.batch_id=b.id
           ),0)>0) AS nearest_expiry_date,
         COALESCE(
           (SELECT MAX(m.created_at) FROM stock_movements m WHERE m.product_id=p.id AND m.direction='OUT'),
@@ -595,6 +800,10 @@ extension WmsCatalogOperations on WmsDatabase {
       final count = Sqflite.firstIntValue(await txn.rawQuery(
         'SELECT COUNT(*) FROM document_lines WHERE document_id=?', [documentId])) ?? 0;
       if (count == 0) throw StateError('Empty documents cannot be submitted');
+      final current=rows.first;
+      if(current['kind']=='return_in'||current['kind']=='return_out'){
+        await _validateReturnDocument(txn,current,excludingDocumentId:documentId);
+      }
       final now = DateTime.now().toIso8601String();
       await txn.update('documents', {'status':'pending_approval','submitted_at':now},
         where:'id=?', whereArgs:[documentId]);
@@ -636,9 +845,9 @@ extension WmsStockTraceability on WmsDatabase {
     final db=await database;
     return db.rawQuery("""
       SELECT b.*,b.received_quantity_base-COALESCE((
-        SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
-        WHERE a.batch_id=b.id AND m.direction='OUT'
+        WHERE a.batch_id=b.id
       ),0) remaining_quantity_base
       FROM stock_batches b WHERE b.product_id=?
       ORDER BY CASE WHEN b.expiry_date IS NULL THEN 1 ELSE 0 END,
@@ -717,6 +926,24 @@ extension WmsFinanceAndHistory on WmsDatabase {
       ${clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}'}
       ORDER BY d.created_at DESC
     ''', args);
+  }
+
+  Future<List<Map<String,Object?>>> returnableDocumentLines(int originalDocumentId) async {
+    final db=await database;
+    final docs=await db.query('documents',where:'id=? AND status=? AND kind IN (?,?)',
+      whereArgs:[originalDocumentId,'approved','receipt','issue'],limit:1);
+    if(docs.isEmpty) throw StateError('Only approved receipt or issue documents can be returned');
+    return db.rawQuery("""
+      SELECT l.*,
+        COALESCE(SUM(CASE WHEN rd.status IN ('pending_approval','approved') THEN rl.base_quantity ELSE 0 END),0) AS returned_base,
+        MAX(0,l.base_quantity-COALESCE(SUM(CASE WHEN rd.status IN ('pending_approval','approved') THEN rl.base_quantity ELSE 0 END),0)) AS remaining_base
+      FROM document_lines l
+      LEFT JOIN document_lines rl ON rl.reference_document_line_id=l.id
+      LEFT JOIN documents rd ON rd.id=rl.document_id AND rd.kind IN ('return_in','return_out')
+      WHERE l.document_id=?
+      GROUP BY l.id
+      ORDER BY l.id
+    """,[originalDocumentId]);
   }
 
   Future<Map<String, Object?>> documentDetails(int documentId) async {
