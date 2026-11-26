@@ -971,7 +971,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               ),
               pw.SizedBox(height: 10),
               pw.Align(
-                alignment: rtl ? pw.Alignment.centerLeft : pw.Alignment.centerRight,
+                alignment: rtl ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
                 child: pw.Text(
                   '${tr3('الإجمالي', 'Grand Total', 'Total général')}: ${pdfMoney(doc['total_minor'])}',
                   style: pw.TextStyle(font: SragFonts.bold!, fontSize: 14),
