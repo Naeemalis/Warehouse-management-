@@ -5,6 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
 import 'domain/unit_conversion.dart';
 
@@ -899,65 +900,158 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   String money(Object? minor) => (((minor as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2);
 
+  String pdfMoney(Object? minor) {
+    final value = ((minor as num?)?.toDouble() ?? 0) / 100;
+    return NumberFormat('#,##0.00', lang).format(value);
+  }
+
+  String pdfDate(Object? value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '');
+    if (parsed == null) return value?.toString() ?? '';
+    return DateFormat('yyyy-MM-dd HH:mm', lang).format(parsed);
+  }
+
+  pw.TextDirection get pdfTextDirection =>
+      rtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
+
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
-    final result=await db.documentDetails(documentId);
-    final doc=result['document'] as Map<String,Object?>;
-    final lines=result['lines'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
-    final isReceipt=doc['kind']=='receipt';
-    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
-      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
-        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
-          pw.Center(child:pw.Text(isReceipt?'سند استلام بضاعة':'سند صرف بضاعة',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
-          pw.SizedBox(height:10),
-          pw.Text('رقم السند: ${doc['document_no']}'),
-          pw.Text('التاريخ: ${doc['created_at']}'),
-          pw.Text('${isReceipt?'المورد':'العميل / الجهة'}: ${doc['party_name_snapshot']??''}'),
-          pw.SizedBox(height:10),
-          pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['الصنف','الكمية','الوحدة','سعر الوحدة','الإجمالي'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:9)))).toList()),
-            ...lines.map((line)=>pw.TableRow(children:[
-              '${line['product_name_snapshot']}','${line['entered_quantity']}','${line['unit_name_snapshot']}',
-              money(line['unit_price_minor']),money((line['entered_quantity'] as num)*(line['unit_price_minor'] as num)),
-            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(5),child:pw.Text(v,style:const pw.TextStyle(fontSize:9)))).toList())),
-          ]),
-          pw.SizedBox(height:10),
-          pw.Align(alignment:pw.Alignment.centerLeft,child:pw.Text('الإجمالي: ${money(doc['total_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:14))),
-        ],
-      )),
-    ]));
+    final result = await db.documentDetails(documentId);
+    final doc = result['document'] as Map<String, Object?>;
+    final lines = result['lines'] as List<Map<String, Object?>>;
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
+    );
+    final isReceipt = doc['kind'] == 'receipt';
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (context) => [
+        pw.Directionality(
+          textDirection: pdfTextDirection,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(child: pw.Text('NaeemSoft WMS',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              pw.Center(child: pw.Text(
+                isReceipt
+                    ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
+                    : tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie'),
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
+              )),
+              pw.SizedBox(height: 10),
+              pw.Text('${tr3('رقم السند', 'Document No.', 'N° du document')}: ${doc['document_no']}'),
+              pw.Text('${tr3('التاريخ', 'Date', 'Date')}: ${pdfDate(doc['created_at'])}'),
+              pw.Text('${isReceipt ? tr3('المورد', 'Supplier', 'Fournisseur') : tr3('العميل / الجهة', 'Customer / Department', 'Client / Service')}: ${doc['party_name_snapshot'] ?? ''}'),
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder.all(),
+                children: [
+                  pw.TableRow(children: [
+                    tr3('الصنف', 'Product', 'Produit'),
+                    tr3('الكمية', 'Quantity', 'Quantité'),
+                    tr3('الوحدة', 'Unit', 'Unité'),
+                    tr3('سعر الوحدة', 'Unit Price', 'Prix unitaire'),
+                    tr3('الإجمالي', 'Total', 'Total'),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(v, style: pw.TextStyle(font: SragFonts.bold!, fontSize: 9)),
+                  )).toList()),
+                  ...lines.map((line) => pw.TableRow(children: [
+                    '${line['product_name_snapshot']}',
+                    '${line['entered_quantity']}',
+                    '${line['unit_name_snapshot']}',
+                    pdfMoney(line['unit_price_minor']),
+                    pdfMoney((line['entered_quantity'] as num) * (line['unit_price_minor'] as num)),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(5),
+                    child: pw.Text(v, style: const pw.TextStyle(fontSize: 9)),
+                  )).toList())),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Align(
+                alignment: rtl ? pw.Alignment.centerLeft : pw.Alignment.centerRight,
+                child: pw.Text(
+                  '${tr3('الإجمالي', 'Grand Total', 'Total général')}: ${pdfMoney(doc['total_minor'])}',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ));
     return pdf.save();
   }
 
-  Future<Uint8List> buildStatementPdf({required bool supplier,required Map<String,Object?> statement}) async {
+  Future<Uint8List> buildStatementPdf({
+    required bool supplier,
+    required Map<String, Object?> statement,
+  }) async {
     await SragFonts.load();
-    final party=(supplier?statement['supplier']:statement['customer']) as Map<String,Object?>;
-    final entries=statement['entries'] as List<Map<String,Object?>>;
-    final pdf=pw.Document(theme:pw.ThemeData.withFont(base:SragFonts.regular!,bold:SragFonts.bold!));
-    pdf.addPage(pw.MultiPage(pageFormat:PdfPageFormat.a4,build:(context)=>[
-      pw.Directionality(textDirection:pw.TextDirection.rtl,child:pw.Column(
-        crossAxisAlignment:pw.CrossAxisAlignment.stretch,children:[
-          pw.Center(child:pw.Text('NaeemSoft WMS',style:pw.TextStyle(font:SragFonts.bold!,fontSize:20))),
-          pw.Center(child:pw.Text(supplier?'كشف حساب مورد':'كشف حساب عميل',style:pw.TextStyle(font:SragFonts.bold!,fontSize:16))),
-          pw.Text('الطرف: ${party['name']}'),
-          pw.Text('تاريخ الطباعة: ${DateTime.now().toIso8601String()}'),
-          pw.SizedBox(height:10),
-          pw.Table(border:pw.TableBorder.all(),children:[
-            pw.TableRow(children:['المستند','التاريخ','مدين','دائن','الرصيد'].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:pw.TextStyle(font:SragFonts.bold!,fontSize:8)))).toList()),
-            ...entries.map((e)=>pw.TableRow(children:[
-              '${e['document_no']}','${e['entry_date']}',money(e['debit_minor']),money(e['credit_minor']),money(e['balance_minor']),
-            ].map((v)=>pw.Padding(padding:const pw.EdgeInsets.all(4),child:pw.Text(v,style:const pw.TextStyle(fontSize:8)))).toList())),
-          ]),
-          pw.SizedBox(height:10),
-          pw.Text('إجمالي الفواتير: ${money(statement['total_debit_minor'])}'),
-          pw.Text('إجمالي المرتجعات: ${money(statement['total_returned_minor'])}'),
-          pw.Text('إجمالي الدفعات: ${money(statement['total_paid_minor'])}'),
-          pw.Text('الرصيد النهائي: ${money(statement['balance_minor'])}',style:pw.TextStyle(font:SragFonts.bold!,fontSize:13)),
-        ],
-      )),
-    ]));
+    final party = (supplier ? statement['supplier'] : statement['customer']) as Map<String, Object?>;
+    final entries = statement['entries'] as List<Map<String, Object?>>;
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(base: SragFonts.regular!, bold: SragFonts.bold!),
+    );
+    pdf.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4,
+      build: (context) => [
+        pw.Directionality(
+          textDirection: pdfTextDirection,
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Center(child: pw.Text('NaeemSoft WMS',
+                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              pw.Center(child: pw.Text(
+                supplier
+                    ? tr3('كشف حساب مورد', 'Supplier Statement', 'Relevé fournisseur')
+                    : tr3('كشف حساب عميل', 'Customer Statement', 'Relevé client'),
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 16),
+              )),
+              pw.Text('${tr3('الطرف', 'Party', 'Tiers')}: ${party['name']}'),
+              pw.Text('${tr3('تاريخ الطباعة', 'Print Date', 'Date d’impression')}: ${pdfDate(DateTime.now().toIso8601String())}'),
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder.all(),
+                children: [
+                  pw.TableRow(children: [
+                    tr3('المستند', 'Document', 'Document'),
+                    tr3('التاريخ', 'Date', 'Date'),
+                    tr3('مدين', 'Debit', 'Débit'),
+                    tr3('دائن', 'Credit', 'Crédit'),
+                    tr3('الرصيد', 'Balance', 'Solde'),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(4),
+                    child: pw.Text(v, style: pw.TextStyle(font: SragFonts.bold!, fontSize: 8)),
+                  )).toList()),
+                  ...entries.map((e) => pw.TableRow(children: [
+                    '${e['document_no']}',
+                    pdfDate(e['entry_date']),
+                    pdfMoney(e['debit_minor']),
+                    pdfMoney(e['credit_minor']),
+                    pdfMoney(e['balance_minor']),
+                  ].map((v) => pw.Padding(
+                    padding: const pw.EdgeInsets.all(4),
+                    child: pw.Text(v, style: const pw.TextStyle(fontSize: 8)),
+                  )).toList())),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text('${tr3('إجمالي الفواتير', 'Total Invoices', 'Total des factures')}: ${pdfMoney(statement['total_debit_minor'])}'),
+              pw.Text('${tr3('إجمالي المرتجعات', 'Total Returns', 'Total des retours')}: ${pdfMoney(statement['total_returned_minor'])}'),
+              pw.Text('${tr3('إجمالي الدفعات', 'Total Payments', 'Total des paiements')}: ${pdfMoney(statement['total_paid_minor'])}'),
+              pw.Text(
+                '${tr3('الرصيد النهائي', 'Final Balance', 'Solde final')}: ${pdfMoney(statement['balance_minor'])}',
+                style: pw.TextStyle(font: SragFonts.bold!, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ));
     return pdf.save();
   }
 
