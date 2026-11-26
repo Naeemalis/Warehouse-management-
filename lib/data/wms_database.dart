@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 6,
+      version: 7,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -61,7 +61,7 @@ class WmsDatabase {
               SELECT b.*,b.received_quantity_base-COALESCE((
                 SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
                 JOIN stock_movements sm ON sm.id=a.stock_movement_id
-                WHERE a.batch_id=b.id AND sm.direction='OUT'
+                WHERE a.batch_id=b.id
               ),0) available_base
               FROM stock_batches b WHERE b.product_id=? ORDER BY b.created_at,b.id
             """,[m['product_id']]);
@@ -91,6 +91,11 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 7) {
+          await db.execute("ALTER TABLE documents ADD COLUMN reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT");
+          await db.execute("ALTER TABLE document_lines ADD COLUMN reference_document_line_id INTEGER REFERENCES document_lines(id) ON DELETE RESTRICT");
+          await db.execute("CREATE INDEX idx_document_lines_reference ON document_lines(reference_document_line_id)");
         }
         if (oldVersion < 6) {
           await db.execute("ALTER TABLE product_units ADD COLUMN is_purchase_unit INTEGER NOT NULL DEFAULT 0");
@@ -165,7 +170,7 @@ class WmsDatabase {
       kind TEXT NOT NULL CHECK(kind IN ('receipt','issue','transfer','return_in','return_out','adjustment')),
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending_approval','approved','rejected','cancelled')),
       party_type TEXT CHECK(party_type IN ('supplier','customer','department','warehouse')),
-      party_id INTEGER, party_name_snapshot TEXT, notes TEXT,
+      party_id INTEGER, party_name_snapshot TEXT, notes TEXT, reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT,
       created_by INTEGER, created_at TEXT NOT NULL, submitted_at TEXT,
       approved_by INTEGER, approved_at TEXT, rejection_reason TEXT,
       delivery_status TEXT NOT NULL DEFAULT 'not_ready' CHECK(delivery_status IN ('not_ready','awaiting_delivery','delivered','partially_delivered')),
@@ -180,7 +185,8 @@ class WmsDatabase {
       factor_to_base_snapshot REAL NOT NULL CHECK(factor_to_base_snapshot > 0),
       base_quantity REAL NOT NULL CHECK(base_quantity > 0),
       unit_price_minor INTEGER NOT NULL DEFAULT 0,
-      packaging_note TEXT, created_at TEXT NOT NULL
+      packaging_note TEXT, created_at TEXT NOT NULL,
+      reference_document_line_id INTEGER REFERENCES document_lines(id) ON DELETE RESTRICT
     )''');
     await db.execute('''CREATE TABLE stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,6 +234,7 @@ class WmsDatabase {
     await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
     await db.execute('CREATE INDEX idx_document_lines_document ON document_lines(document_id)');
+    await db.execute('CREATE INDEX idx_document_lines_reference ON document_lines(reference_document_line_id)');
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
@@ -427,7 +434,7 @@ extension WmsCatalogOperations on WmsDatabase {
           AND b.received_quantity_base-COALESCE((
             SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
             JOIN stock_movements om ON om.id=a.stock_movement_id
-            WHERE a.batch_id=b.id AND om.direction='OUT'
+            WHERE a.batch_id=b.id
           ),0)>0) AS nearest_expiry_date,
         COALESCE(
           (SELECT MAX(m.created_at) FROM stock_movements m WHERE m.product_id=p.id AND m.direction='OUT'),
@@ -638,7 +645,7 @@ extension WmsStockTraceability on WmsDatabase {
       SELECT b.*,b.received_quantity_base-COALESCE((
         SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
-        WHERE a.batch_id=b.id AND m.direction='OUT'
+        WHERE a.batch_id=b.id
       ),0) remaining_quantity_base
       FROM stock_batches b WHERE b.product_id=?
       ORDER BY CASE WHEN b.expiry_date IS NULL THEN 1 ELSE 0 END,
