@@ -467,7 +467,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
       final controller=TextEditingController();
       final created=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(
         title:Text(receiving?t('supplier'):t('customer')),
-        content:TextField(controller:controller,decoration:InputDecoration(labelText:t('name'))),
+        content:TextField(controller:controller,decoration:InputDecoration(labelText:t(receiving?'supplierName':'customerName'))),
         actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:Text(t('save')))]));
       if (created==true && controller.text.trim().isNotEmpty) {
         await db.saveParty(supplier:receiving,name:controller.text);
