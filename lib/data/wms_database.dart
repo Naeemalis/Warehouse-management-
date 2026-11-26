@@ -12,9 +12,12 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 7,
+      version: 8,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 8) {
+          await _createAccessControlSchema(db);
+        }
         if (oldVersion < 2) {
           await db.execute('''CREATE TABLE customer_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +241,96 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
+    await _createAccessControlSchema(db);
+  }
+
+  Future<void> _createAccessControlSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE app_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      password_iterations INTEGER NOT NULL CHECK(password_iterations >= 100000),
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE app_roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      role_key TEXT NOT NULL UNIQUE,
+      role_name TEXT NOT NULL,
+      description TEXT,
+      is_system INTEGER NOT NULL DEFAULT 1 CHECK(is_system IN (0,1)),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE app_permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      permission_key TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      is_sensitive INTEGER NOT NULL DEFAULT 0 CHECK(is_sensitive IN (0,1))
+    )''');
+    await db.execute('''CREATE TABLE user_roles (
+      user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      role_id INTEGER NOT NULL REFERENCES app_roles(id) ON DELETE RESTRICT,
+      assigned_by INTEGER REFERENCES app_users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, role_id)
+    )''');
+    await db.execute('''CREATE TABLE role_permissions (
+      role_id INTEGER NOT NULL REFERENCES app_roles(id) ON DELETE CASCADE,
+      permission_id INTEGER NOT NULL REFERENCES app_permissions(id) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      PRIMARY KEY(role_id, permission_id)
+    )''');
+    await db.execute('''CREATE TABLE user_permissions (
+      user_id INTEGER NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+      permission_id INTEGER NOT NULL REFERENCES app_permissions(id) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      assigned_by INTEGER REFERENCES app_users(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, permission_id)
+    )''');
+    await db.execute('CREATE INDEX idx_user_roles_role ON user_roles(role_id)');
+    await db.execute('CREATE INDEX idx_role_permissions_permission ON role_permissions(permission_id)');
+    await db.execute('CREATE INDEX idx_user_permissions_permission ON user_permissions(permission_id)');
+    final now = DateTime.now().toIso8601String();
+    for (final role in [
+      ['super_admin','Super Admin','System administration; confidential access is never implicit'],
+      ['admin','Admin','Manage users, roles and permissions'],
+      ['warehouse_staff','Warehouse Staff','Warehouse operations'],
+      ['analyst','Analyst','Product analysis'],
+    ]) {
+      await db.insert('app_roles', {'role_key':role[0],'role_name':role[1],'description':role[2],'is_system':1,'created_at':now});
+    }
+    final permissions = [
+      ['users.manage','Create, edit, disable and list user accounts',0],
+      ['roles.manage','Create and edit roles',0],
+      ['permissions.manage','Assign and revoke permissions',0],
+      ['analysis.view','View product analysis',0],
+      ['competitors.view','View confidential competitor intelligence',1],
+      ['competitors.edit','Create and edit confidential competitor intelligence',1],
+      ['competitors.export','Export confidential competitor intelligence',1],
+      ['audit.view','View security and audit history',0],
+    ];
+    for (final permission in permissions) {
+      await db.insert('app_permissions', {'permission_key':permission[0],'description':permission[1],'is_sensitive':permission[2]});
+    }
+    final roleGrants = {
+      'super_admin':['users.manage','roles.manage','permissions.manage','analysis.view','audit.view'],
+      'admin':['users.manage','roles.manage','permissions.manage','analysis.view','audit.view'],
+      'analyst':['analysis.view'],
+    };
+    for (final entry in roleGrants.entries) {
+      final roles = await db.query('app_roles',columns:['id'],where:'role_key=?',whereArgs:[entry.key],limit:1);
+      final roleId = roles.first['id'] as int;
+      for (final key in entry.value) {
+        final rows = await db.query('app_permissions',columns:['id'],where:'permission_key=?',whereArgs:[key],limit:1);
+        await db.insert('role_permissions', {'role_id':roleId,'permission_id':rows.first['id'],'is_allowed':1});
+      }
+    }
   }
 
   Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
