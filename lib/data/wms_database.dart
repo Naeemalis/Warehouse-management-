@@ -567,7 +567,7 @@ class WmsDatabase {
             SELECT b.*,b.received_quantity_base-COALESCE((
               SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
               JOIN stock_movements sm ON sm.id=a.stock_movement_id
-              WHERE a.batch_id=b.id AND sm.direction='OUT'
+              WHERE a.batch_id=b.id
             ),0) available_base
             FROM stock_batches b
             WHERE b.product_id=? AND (b.expiry_date IS NULL OR b.expiry_date>=?)
