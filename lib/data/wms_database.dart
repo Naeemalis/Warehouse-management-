@@ -59,7 +59,7 @@ class WmsDatabase {
             var remaining=(m['quantity_base'] as num).toDouble();
             final batches=await db.rawQuery("""
               SELECT b.*,b.received_quantity_base-COALESCE((
-                SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
                 JOIN stock_movements sm ON sm.id=a.stock_movement_id
                 WHERE a.batch_id=b.id
               ),0) available_base
@@ -565,7 +565,7 @@ class WmsDatabase {
           final today=DateTime.now().toIso8601String().substring(0,10);
           final batches=await txn.rawQuery("""
             SELECT b.*,b.received_quantity_base-COALESCE((
-              SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
               JOIN stock_movements sm ON sm.id=a.stock_movement_id
               WHERE a.batch_id=b.id AND sm.direction='OUT'
             ),0) available_base
@@ -630,7 +630,7 @@ extension WmsCatalogOperations on WmsDatabase {
         (SELECT MIN(b.expiry_date) FROM stock_batches b
           WHERE b.product_id=p.id AND b.expiry_date IS NOT NULL
           AND b.received_quantity_base-COALESCE((
-            SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
             JOIN stock_movements om ON om.id=a.stock_movement_id
             WHERE a.batch_id=b.id
           ),0)>0) AS nearest_expiry_date,
@@ -845,7 +845,7 @@ extension WmsStockTraceability on WmsDatabase {
     final db=await database;
     return db.rawQuery("""
       SELECT b.*,b.received_quantity_base-COALESCE((
-        SELECT SUM(a.quantity_base) FROM stock_movement_allocations a
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
         WHERE a.batch_id=b.id
       ),0) remaining_quantity_base
