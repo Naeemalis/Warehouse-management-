@@ -858,7 +858,10 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 final doc=pending[i];
                 return Card(child:ListTile(
                   title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
-                  subtitle:Text(doc['kind']=='receipt'?t('receipt'):t('issue')),
+                  subtitle:Text(doc['kind']=='receipt'?t('receipt')
+                    :doc['kind']=='issue'?t('issue')
+                    :doc['kind']=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
+                    :tr3('مرتجع مورد','Supplier return','Retour fournisseur')),
                   isThreeLine:false,
                   trailing:Wrap(spacing:4,children:[
                     IconButton(tooltip:t('approve'),icon:const Icon(Icons.check_circle,color:Colors.green),onPressed:() async {
@@ -1227,11 +1230,16 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             Expanded(child:docs.isEmpty?Center(child:Text(tr3('لا توجد فواتير','No documents','Aucun document'))):ListView.builder(
               itemCount:docs.length,itemBuilder:(ctx,i){
                 final d=docs[i];
-                final isReceipt=d['kind']=='receipt';
+                final kind=d['kind'];
+                final isSupplierDoc=kind=='receipt'||kind=='return_out';
+                final kindLabel=kind=='receipt'?tr3('استلام','Receipt','Réception')
+                  :kind=='issue'?tr3('صرف','Issue','Sortie')
+                  :kind=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
+                  :tr3('مرتجع مورد','Supplier return','Retour fournisseur');
                 return Card(child:ListTile(
-                  leading:Icon(isReceipt?Icons.move_to_inbox:Icons.outbox),
+                  leading:Icon(kind=='receipt'?Icons.move_to_inbox:kind=='issue'?Icons.outbox:Icons.assignment_return),
                   title:Text('${d['document_no']} · ${d['party_name_snapshot']??''}'),
-                  subtitle:Text('${isReceipt?tr3('استلام','Receipt','Réception'):tr3('صرف','Issue','Sortie')} · ${d['status']} · ${money(d['total_minor'])}'),
+                  subtitle:Text('${kindLabel} · ${d['status']} · ${money(d['total_minor'])}'),
                   trailing:const Icon(Icons.chevron_right),
                   onTap:()=>showDocumentDetails(d['id'] as int),
                 ));
