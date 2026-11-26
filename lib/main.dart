@@ -1211,7 +1211,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
             )),
           ]),
         )))),
-      )),
+      ),
     );
     for(final c in quantities.values){c.dispose();}
   }
