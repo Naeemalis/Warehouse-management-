@@ -1231,7 +1231,6 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               itemCount:docs.length,itemBuilder:(ctx,i){
                 final d=docs[i];
                 final kind=d['kind'];
-                final isSupplierDoc=kind=='receipt'||kind=='return_out';
                 final kindLabel=kind=='receipt'?tr3('استلام','Receipt','Réception')
                   :kind=='issue'?tr3('صرف','Issue','Sortie')
                   :kind=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
