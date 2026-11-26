@@ -10,12 +10,14 @@ import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
 import 'domain/unit_conversion.dart';
 
+/// Initializes Flutter and opens the local WMS database before rendering the app.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await WmsDatabase.instance.database;
   runApp(const NaeemWmsApp());
 }
 
+/// Root Material application with Arabic, English, and French locale selection.
 class NaeemWmsApp extends StatefulWidget {
   const NaeemWmsApp({super.key});
   @override
@@ -51,6 +53,7 @@ class _NaeemWmsAppState extends State<NaeemWmsApp> {
   );
 }
 
+/// Main WMS workspace: product gallery, receiving/issue actions, and navigation.
 class WarehouseHome extends StatefulWidget {
   const WarehouseHome({super.key, required this.language, required this.onLanguage});
   final String language;
@@ -131,6 +134,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   String get lang => widget.language;
   String t(String key) => words[lang]?[key] ?? words['en']![key]!;
   String tr3(String ar, String en, String fr) => lang=='ar' ? ar : (lang=='fr' ? fr : en);
+  /// Derives the product-card status color from stock, nearest expiry, and last activity.
   Color productStatusColor(Map<String,Object?> product) {
     final stock=(product['stock_base'] as num?)?.toDouble() ?? 0;
     final expiry=DateTime.tryParse(product['nearest_expiry_date']?.toString() ?? '');
@@ -152,6 +156,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     refresh();
   }
 
+  /// Reloads product cards and pending approval summaries from SQLite.
   Future<void> refresh() async {
     setState(() => loading = true);
     products = await db.listProducts();
@@ -275,6 +280,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical:14)),
     onPressed: onTap, icon: Icon(icon), label: Text(label, maxLines:1, overflow:TextOverflow.ellipsis));
 
+  /// Shows the product setup form and saves the product plus packaging-unit chain.
   Future<void> addProduct() async {
     final name = TextEditingController();
     final base = TextEditingController(text: lang == 'ar' ? 'حبة' : 'piece');
@@ -327,11 +333,14 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     } catch (_) { message(t('badUnits')); }
   }
 
+  /// Routes the user to the receipt or issue cashier without mixing their workflows.
   Future<void> openTransaction(bool receiving,{Map<String,Object?>? selectedProduct}) async {
     if(receiving){await _openReceiptTransaction(receiving:receiving,selectedProduct:selectedProduct);}
     else{await _openIssueCashier(selectedProduct:selectedProduct);}
   }
 
+  /// Builds the issue cashier: customer, available products, sale units, quantities, and basket.
+  /// Persists a draft issue document and submits it for approval; stock is posted later.
   Future<void> _openIssueCashier({Map<String,Object?>? selectedProduct}) async {
     final customers=await db.listParties('customers');
     final available=(await db.listProducts()).where((p)=>((p['stock_base'] as num?)?.toDouble()??0)>0).toList();
@@ -351,7 +360,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     List<Map<String,Object?>> units=[];
     final basket=<Map<String,Object?>>[];
     String qty='';
-    Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
+    /// Loads the selected product's available units for the issue cashier.
+  Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
       final loaded=await db.listUnits(p['id'] as int);
       setLocal(() { productId=p['id'] as int; units=loaded; unit=null; });
     }
@@ -460,6 +470,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     ));
   }
 
+  /// Builds the receipt/party transaction form, purchase-unit quantity, price, and expiry splits.
+  /// Saves a draft document and submits it for approval without posting stock immediately.
   Future<void> _openReceiptTransaction({required bool receiving,Map<String,Object?>? selectedProduct}) async {
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
@@ -633,6 +645,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+  /// Displays the selected product's batch balances, expiry dates, and stock movements.
   Future<void> showProductHistory(Map<String,Object?> product) async {
     final productId=product['id'] as int;
     final batches=await db.productBatchBalances(productId);
@@ -686,6 +699,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+  /// Edits product master name and general purchase/issue prices; does not rewrite invoice snapshots.
   Future<void> editProduct(Map<String,Object?> product) async {
     final name=TextEditingController(text:'${product['name']}');
     final purchase=TextEditingController(text:'${((product['purchase_price_minor'] as num?)??0)/100}');
@@ -713,6 +727,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     }
   }
 
+  /// Lists, creates, edits, and archives supplier/customer master records.
   Future<void> manageParties() async {
     String kind='suppliers';
     List<Map<String,Object?>> rows=await db.listParties(kind);
@@ -789,6 +804,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     );
   }
 
+  /// Shows approved issue documents awaiting delivery and records recipient confirmation.
   Future<void> showDeliveries() async {
     final docs=await db.awaitingDeliveryDocuments();
     if(!mounted)return;
@@ -841,6 +857,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+  /// Displays pending documents and invokes approve/reject actions.
+  /// Current UI actor IDs are demo constants, not authenticated user identities.
   Future<void> showApprovals() async {
     await refresh();
     if(!mounted)return;
@@ -1093,6 +1111,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
 
 
+  /// Creates customer or supplier return drafts against approved source invoices.
+  /// The current UI does not collect a return-reason field and uses a demo actor ID.
   Future<void> showReturns() async {
     String returnKind='return_in';
     String sourceKind='issue';
@@ -1216,6 +1236,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     for(final c in quantities.values){c.dispose();}
   }
 
+  /// Displays the invoice register, optionally filtered by document kind.
   Future<void> showDocuments({String? kind}) async {
     final docs=await db.listDocuments(kind:kind);
     if(!mounted)return;
@@ -1248,6 +1269,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     );
   }
 
+  /// Displays one invoice's header and line-level snapshots and exposes print/share actions.
   Future<void> showDocumentDetails(int id) async {
     final result=await db.documentDetails(id);
     final doc=result['document'] as Map<String,Object?>;
@@ -1278,6 +1300,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     ));
   }
 
+  /// Displays a customer's running account statement and payment-entry action.
   Future<void> showCustomerAccounts() async {
     final customers=await db.listParties('customers');
     if(customers.isEmpty){message(tr3('أضف عميلاً أولاً','Add a customer first','Ajoutez d’abord un client'));return;}
@@ -1350,6 +1373,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+  /// Displays a supplier's running account statement and payment-entry action.
   Future<void> showSupplierAccounts() async {
     final suppliers=await db.listParties('suppliers');
     if(suppliers.isEmpty){message(tr3('أضف مورداً أولاً','Add a supplier first','Ajoutez d’abord un fournisseur'));return;}
@@ -1420,6 +1444,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     );
   }
 
+  /// Collects and records a payment against the supplier's overall balance.
   Future<void> recordSupplierPayment(int supplierId, BuildContext sheetContext) async {
     final amount=TextEditingController();
     final reference=TextEditingController();
@@ -1450,6 +1475,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     }
   }
 
+  /// Collects and records a payment against the customer's overall balance.
   Future<void> recordCustomerPayment(int customerId, BuildContext sheetContext) async {
     final amount=TextEditingController();
     final reference=TextEditingController();
