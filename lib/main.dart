@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart' hide TextDirection;
 import 'package:pdf/widgets.dart' as pw;
@@ -164,7 +165,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
 
   @override
   Widget build(BuildContext context) => Directionality(
-    textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+    textDirection: rtl ? ui.TextDirection.rtl : ui.TextDirection.ltr,
     child: Scaffold(
       appBar: AppBar(
         title: Text(t('title')),
@@ -716,7 +717,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.7,
           child:Column(children:[
@@ -791,7 +792,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.65,
           child:Column(children:[
@@ -843,7 +844,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(16),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.72,
           child:Column(children:[
@@ -1086,7 +1087,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
-      builder:(ctx)=>Directionality(textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+      builder:(ctx)=>Directionality(textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.78,
           child:Column(children:[
@@ -1147,7 +1148,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.82,
           child:Column(children:[
@@ -1219,7 +1220,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
       builder:(ctx)=>StatefulBuilder(builder:(ctx,setSheet)=>Directionality(
-        textDirection:rtl?TextDirection.rtl:TextDirection.ltr,
+        textDirection:rtl?ui.TextDirection.rtl:ui.TextDirection.ltr,
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.82,
           child:Column(children:[
