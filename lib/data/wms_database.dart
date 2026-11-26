@@ -928,6 +928,24 @@ extension WmsFinanceAndHistory on WmsDatabase {
     ''', args);
   }
 
+  Future<List<Map<String,Object?>>> returnableDocumentLines(int originalDocumentId) async {
+    final db=await database;
+    final docs=await db.query('documents',where:'id=? AND status=? AND kind IN (?,?)',
+      whereArgs:[originalDocumentId,'approved','receipt','issue'],limit:1);
+    if(docs.isEmpty) throw StateError('Only approved receipt or issue documents can be returned');
+    return db.rawQuery("""
+      SELECT l.*,
+        COALESCE(SUM(CASE WHEN rd.status IN ('pending_approval','approved') THEN rl.base_quantity ELSE 0 END),0) AS returned_base,
+        MAX(0,l.base_quantity-COALESCE(SUM(CASE WHEN rd.status IN ('pending_approval','approved') THEN rl.base_quantity ELSE 0 END),0)) AS remaining_base
+      FROM document_lines l
+      LEFT JOIN document_lines rl ON rl.reference_document_line_id=l.id
+      LEFT JOIN documents rd ON rd.id=rl.document_id AND rd.kind IN ('return_in','return_out')
+      WHERE l.document_id=?
+      GROUP BY l.id
+      ORDER BY l.id
+    """,[originalDocumentId]);
+  }
+
   Future<Map<String, Object?>> documentDetails(int documentId) async {
     final db = await database;
     final docs = await db.rawQuery('''
