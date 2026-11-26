@@ -1099,7 +1099,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     List<Map<String,Object?>> sourceDocs=(await db.listDocuments(kind:sourceKind))
         .where((d)=>d['status']=='approved').toList();
     int? selectedId=sourceDocs.isEmpty?null:sourceDocs.first['id'] as int;
-    List<Map<String,Object?>> sourceLines=selectedId==null?[]:await db.returnableDocumentLines(selectedId!);
+    List<Map<String,Object?>> sourceLines=selectedId==null?[]:await db.returnableDocumentLines(selectedId);
     final quantities=<int,TextEditingController>{};
     for(final line in sourceLines){quantities[line['id'] as int]=TextEditingController();}
     if(!mounted)return;
