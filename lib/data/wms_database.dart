@@ -2,11 +2,14 @@ import '../domain/unit_conversion.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+/// Local SQLite repository for WMS master data, documents, stock ledger, and accounts.
+/// Keep business rules and transactional stock posting in this data layer.
 class WmsDatabase {
   WmsDatabase._();
   static final WmsDatabase instance = WmsDatabase._();
   Database? _database;
 
+  /// Opens the local database, enables foreign keys, and applies schema migrations.
   Future<Database> get database async {
     if (_database != null) return _database!;
     final root = await getDatabasesPath();
@@ -277,6 +280,7 @@ class WmsDatabase {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_movement_allocations_batch ON stock_movement_allocations(batch_id)');
   }
 
+  /// Calculates a product's base-unit balance from posted IN and OUT stock movements.
   Future<double> getAvailableStock(int productId) async {
     final db = await database;
     final rows = await db.rawQuery('''SELECT COALESCE(SUM(CASE
@@ -362,6 +366,8 @@ class WmsDatabase {
     }
   }
 
+  /// Creates a draft return linked to an approved source invoice; does not post stock.
+  /// Each return line must reference an original document-line ID and positive quantity.
   Future<int> createReturnDocument({
     required int originalDocumentId,
     required String kind,
@@ -424,6 +430,8 @@ class WmsDatabase {
   }
 
   // Only pending documents can be approved. Posting and status transition are atomic.
+  /// Atomically approves a pending document and posts its stock ledger movements.
+  /// Validates stock availability and return limits before committing.
   Future<void> approveDocument({required int documentId, required int approverId}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -621,6 +629,7 @@ class WmsDatabase {
 
 
 extension WmsCatalogOperations on WmsDatabase {
+  /// Lists active products with derived base stock, nearest expiry, and latest activity.
   Future<List<Map<String, Object?>>> listProducts() async {
     final db = await database;
     return db.rawQuery('''
@@ -712,6 +721,8 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Creates a draft receipt or issue and persists historical line snapshots.
+  /// Does not affect stock; submission and approval are separate operations.
   Future<int> createDocument({
     required String kind,
     required String partyType,
@@ -790,6 +801,8 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Moves a non-empty draft into pending approval and records the submission event.
+  /// Does not create stock movements.
   Future<void> submitDocument({required int documentId, required int userId}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -928,6 +941,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     ''', args);
   }
 
+  /// Returns source invoice lines with returned and remaining returnable quantities.
   Future<List<Map<String,Object?>>> returnableDocumentLines(int originalDocumentId) async {
     final db=await database;
     final docs=await db.query('documents',where:'id=? AND status=? AND kind IN (?,?)',
@@ -1009,6 +1023,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 
+  /// Builds a supplier statement from approved receipts, approved returns, and payments.
   Future<Map<String, Object?>> supplierStatement(int supplierId) async {
     final db = await database;
     final partyRows = await db.query('suppliers', where:'id=?', whereArgs:[supplierId], limit:1);
@@ -1050,6 +1065,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     };
   }
 
+  /// Builds a customer statement from approved issues, approved returns, and payments.
   Future<Map<String, Object?>> customerStatement(int customerId) async {
     final db = await database;
     final customerRows = await db.query('customers', where:'id=?', whereArgs:[customerId], limit:1);
