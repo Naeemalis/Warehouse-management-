@@ -157,6 +157,155 @@ class AccessControlService {
     });
   }
 
+  Future<int> createUser({
+    required UserSession actor,
+    required String username,
+    required String displayName,
+    required String password,
+    String initialRoleKey = 'warehouse_staff',
+  }) async {
+    if (!await hasPermission(actor, 'users.manage')) {
+      throw StateError('Not authorized to manage users.');
+    }
+    if (!isValidUsername(username)) {
+      throw ArgumentError('Username must be 3-32 characters: letters, digits, dot, underscore or hyphen.');
+    }
+    if (displayName.trim().isEmpty) {
+      throw ArgumentError('Display name is required.');
+    }
+    if (initialRoleKey == 'super_admin') {
+      throw StateError('Only an existing Super Admin can create another Super Admin.');
+    }
+    final credentials = await _hashPassword(password);
+    final db = await _database.database;
+    return db.transaction((txn) async {
+      final roles = await txn.query(
+        'app_roles',
+        columns: ['id'],
+        where: 'role_key=?',
+        whereArgs: [initialRoleKey],
+        limit: 1,
+      );
+      if (roles.isEmpty) throw ArgumentError('Unknown role.');
+      final now = DateTime.now().toIso8601String();
+      final userId = await txn.insert('app_users', {
+        'username': _normalizeUsername(username),
+        'display_name': displayName.trim(),
+        ...credentials,
+        'password_iterations': passwordIterations,
+        'is_active': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
+      await txn.insert('user_roles', {
+        'user_id': userId,
+        'role_id': roles.first['id'],
+        'assigned_by': actor.userId,
+        'created_at': now,
+      });
+      await txn.insert('audit_log', {
+        'entity_type': 'user',
+        'entity_id': userId,
+        'action': 'user_created',
+        'actor_id': actor.userId,
+        'details': 'Created account with role $initialRoleKey',
+        'created_at': now,
+      });
+      return userId;
+    });
+  }
+
+  Future<void> assignRole({
+    required UserSession actor,
+    required int targetUserId,
+    required String roleKey,
+    required bool assigned,
+  }) async {
+    if (!await hasPermission(actor, 'roles.manage')) {
+      throw StateError('Not authorized to manage roles.');
+    }
+    if (roleKey == 'super_admin' && !await _userHasRole(actor.userId, 'super_admin')) {
+      throw StateError('Only a Super Admin can assign or revoke the Super Admin role.');
+    }
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      final roles = await txn.query(
+        'app_roles',
+        columns: ['id'],
+        where: 'role_key=?',
+        whereArgs: [roleKey],
+        limit: 1,
+      );
+      if (roles.isEmpty) throw ArgumentError('Unknown role.');
+      final roleId = roles.first['id'] as int;
+      final users = await txn.query(
+        'app_users',
+        columns: ['id'],
+        where: 'id=?',
+        whereArgs: [targetUserId],
+        limit: 1,
+      );
+      if (users.isEmpty) throw StateError('User not found.');
+      if (assigned) {
+        await txn.insert(
+          'user_roles',
+          {
+            'user_id': targetUserId,
+            'role_id': roleId,
+            'assigned_by': actor.userId,
+            'created_at': DateTime.now().toIso8601String(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      } else {
+        if (roleKey == 'super_admin' && targetUserId == actor.userId) {
+          throw StateError('You cannot remove your own Super Admin role.');
+        }
+        await txn.delete(
+          'user_roles',
+          where: 'user_id=? AND role_id=?',
+          whereArgs: [targetUserId, roleId],
+        );
+      }
+      await txn.insert('audit_log', {
+        'entity_type': 'user_role',
+        'entity_id': targetUserId,
+        'action': assigned ? 'role_assigned' : 'role_revoked',
+        'actor_id': actor.userId,
+        'details': roleKey,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    });
+  }
+
+  Future<bool> _userHasRole(int userId, String roleKey) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery('''
+      SELECT 1 FROM user_roles ur
+      JOIN app_roles r ON r.id=ur.role_id
+      JOIN app_users u ON u.id=ur.user_id
+      WHERE ur.user_id=? AND r.role_key=? AND u.is_active=1
+      LIMIT 1
+    ''', [userId, roleKey]);
+    return rows.isNotEmpty;
+  }
+
+  Future<List<Map<String, Object?>>> listUsers(UserSession actor) async {
+    if (!await hasPermission(actor, 'users.manage')) {
+      throw StateError('Not authorized to list users.');
+    }
+    final db = await _database.database;
+    return db.rawQuery('''
+      SELECT u.id,u.username,u.display_name,u.is_active,u.created_at,u.updated_at,
+        GROUP_CONCAT(r.role_key, ', ') AS role_keys
+      FROM app_users u
+      LEFT JOIN user_roles ur ON ur.user_id=u.id
+      LEFT JOIN app_roles r ON r.id=ur.role_id
+      GROUP BY u.id
+      ORDER BY u.display_name COLLATE NOCASE
+    ''');
+  }
+
   Future<UserSession?> authenticate({
     required String username,
     required String password,
