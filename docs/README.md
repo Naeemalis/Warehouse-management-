@@ -20,6 +20,7 @@
 |---|---|
 | [DATABASE-DICTIONARY.md](DATABASE-DICTIONARY.md) | الجداول والحقول والقيود والعلاقات في SQLite |
 | [SCREEN-TO-CODE-MAP.md](SCREEN-TO-CODE-MAP.md) | كل شاشة، الدوال التي تشغلها، وطبقة البيانات التي تستدعيها |
+| [SCREEN-FIELD-MAP.md](SCREEN-FIELD-MAP.md) | عناصر الإدخال في كل شاشة، متغيرات Dart، وأعمدة SQLite التي تحفظها |
 | [CODE-REFERENCE.md](CODE-REFERENCE.md) | وظيفة دوال قاعدة البيانات ومدخلاتها ومخرجاتها والجداول التي تتعامل معها |
 | [VERIFICATION-STATUS.md](VERIFICATION-STATUS.md) | حالة الاختبارات والتحقق والقيود المعروفة في لقطة المصدر |
 
