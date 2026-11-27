@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 7,
+      version: 8,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -91,6 +91,9 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 8) {
+          await _createAccessControlSchema(db);
         }
         if (oldVersion < 7) {
           await db.execute("ALTER TABLE documents ADD COLUMN reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT");
@@ -230,6 +233,7 @@ class WmsDatabase {
     )''');
     await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
     await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
+    await _createAccessControlSchema(db);
     await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
     await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
@@ -238,6 +242,78 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
+  }
+
+  Future<void> _createAccessControlSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS departments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      description TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      description TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS permissions (
+      permission_key TEXT PRIMARY KEY,
+      label_ar TEXT NOT NULL,
+      module TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      full_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+      role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS role_permissions (
+      role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      permission_key TEXT NOT NULL REFERENCES permissions(permission_key) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(role_id, permission_key)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS user_permissions (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission_key TEXT NOT NULL REFERENCES permissions(permission_key) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      granted_by INTEGER,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, permission_key)
+    )''');
+    const permissions = <Map<String,String>>[
+      {'permission_key':'receipt.create','label_ar':'إنشاء التوريد','module':'التوريد'},
+      {'permission_key':'issue.create','label_ar':'إنشاء الصرف','module':'الصرف'},
+      {'permission_key':'document.approve','label_ar':'اعتماد المستندات','module':'الاعتمادات'},
+      {'permission_key':'returns.manage','label_ar':'إدارة المرتجعات','module':'المرتجعات'},
+      {'permission_key':'supplier.view','label_ar':'عرض الموردين وكشوفهم','module':'الموردون'},
+      {'permission_key':'supplier.payment','label_ar':'تسجيل دفعات الموردين','module':'الموردون'},
+      {'permission_key':'customer.view','label_ar':'عرض العملاء وكشوفهم','module':'العملاء'},
+      {'permission_key':'customer.payment','label_ar':'تسجيل دفعات العملاء','module':'العملاء'},
+      {'permission_key':'stock.count','label_ar':'الجرد','module':'المخزون'},
+      {'permission_key':'reports.view','label_ar':'عرض التقارير','module':'التقارير'},
+      {'permission_key':'users.manage','label_ar':'إدارة المستخدمين','module':'الإدارة'},
+      {'permission_key':'departments.manage','label_ar':'إدارة الأقسام','module':'الإدارة'},
+      {'permission_key':'roles.manage','label_ar':'إدارة الأدوار والصلاحيات','module':'الإدارة'},
+      {'permission_key':'settings.manage','label_ar':'إعدادات المؤسسة','module':'الإعدادات'},
+      {'permission_key':'competitor_confidential_view','label_ar':'الاطلاع على معلومات المنافسين السرية','module':'معلومات سرية'},
+    ];
+    for (final permission in permissions) {
+      await db.insert('permissions', permission,
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await db.insert('app_settings', {
+      'setting_key':'company_name','setting_value':''
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
