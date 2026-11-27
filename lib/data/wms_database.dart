@@ -92,11 +92,11 @@ class WmsDatabase {
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
         }
-        if (oldVersion < 9) {
-          await db.execute('ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT \'\'');
-        }
         if (oldVersion < 8) {
           await _createAccessControlSchema(db);
+        }
+        if (oldVersion == 8) {
+          await db.execute("ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''");
         }
         if (oldVersion < 7) {
           await db.execute("ALTER TABLE documents ADD COLUMN reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT");
