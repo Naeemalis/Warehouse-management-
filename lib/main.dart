@@ -8,6 +8,8 @@ import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
+import 'data/master_data_import.dart';
+import 'data/master_data_transfer.dart';
 import 'domain/unit_conversion.dart';
 
 void main() async {
@@ -217,7 +219,16 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 padding: const EdgeInsets.fromLTRB(16,14,16,8),
                 child: Row(children: [
                   Expanded(child: Text(t('gallery'), style: Theme.of(context).textTheme.titleLarge)),
-                  FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label: Text(t('add'))),
+                  PopupMenuButton<String>(
+  tooltip:tr3('استيراد وتصدير الأصناف','Import / export products','Importer / exporter les produits'),
+  onSelected:(v){if(v=='import')importMasterData('products');if(v=='xlsx')exportMasterData('products');if(v=='csv')exportMasterData('products',csv:true);},
+  itemBuilder:(_)=>[
+    PopupMenuItem(value:'import',child:Text(tr3('استيراد ملف','Import file','Importer un fichier'))),
+    PopupMenuItem(value:'xlsx',child:Text(tr3('تصدير Excel','Export Excel','Exporter Excel'))),
+    PopupMenuItem(value:'csv',child:Text(tr3('تصدير CSV','Export CSV','Exporter CSV'))),
+  ],
+),
+FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label: Text(t('add'))),
                 ]),
               ),
               Expanded(child: products.isEmpty
@@ -739,6 +750,28 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               },
             ),
             const SizedBox(height:8),
+            Row(children:[
+              Expanded(child:OutlinedButton.icon(
+                onPressed:() async {
+                  await importMasterData(kind);
+                  final refreshed=await db.listParties(kind);
+                  setSheet(()=>rows=refreshed);
+                },
+                icon:const Icon(Icons.file_upload_outlined),
+                label:Text(tr3('استيراد','Import','Importer')),
+              )),
+              const SizedBox(width:8),
+              PopupMenuButton<String>(
+                tooltip:tr3('تصدير البيانات','Export data','Exporter les données'),
+                onSelected:(v)=>exportMasterData(kind,csv:v=='csv'),
+                itemBuilder:(_)=>[
+                  PopupMenuItem(value:'xlsx',child:Text(tr3('تصدير Excel','Export Excel','Exporter Excel'))),
+                  PopupMenuItem(value:'csv',child:Text(tr3('تصدير CSV','Export CSV','Exporter CSV'))),
+                ],
+                icon:const Icon(Icons.file_download_outlined),
+              ),
+            ]),
+            const SizedBox(height:8),
             Expanded(child:rows.isEmpty?Center(child:Text(tr3('لا توجد بيانات','No records','Aucune donnée'))):ListView(
               children:rows.map((p)=>ListTile(
                 leading:const Icon(Icons.person_outline),
@@ -787,6 +820,72 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ))),
       )),
     );
+  }
+
+
+  Future<void> importMasterData(String kind) async {
+    try {
+      final picked=await MasterDataTransfer.pickImportFile();
+      if(picked==null)return;
+      final rows=MasterDataTransfer.readRows(picked.bytes,picked.name);
+      if(rows.isEmpty){message(tr3('الملف لا يحتوي على سجلات','The file contains no records','Le fichier ne contient aucun enregistrement'));return;}
+      final preview=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
+        title:Text(tr3('معاينة الاستيراد','Import preview','Aperçu de l’importation')),
+        content:SizedBox(width:420,height:260,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(tr3('عدد السجلات: '+rows.length.toString(),'Records: '+rows.length.toString(),'Enregistrements : '+rows.length.toString())),
+          const SizedBox(height:8),
+          Text(tr3('سيتم تحديث السجلات المطابقة وإضافة السجلات الجديدة. لن تتغير أرصدة الحسابات أو حركات المخزون.','Matching records will be updated and new records added. Account balances and stock movements will not change.','Les enregistrements correspondants seront mis à jour et les soldes et mouvements de stock resteront inchangés.'),style:Theme.of(d).textTheme.bodySmall),
+          const Divider(),
+          Expanded(child:ListView.builder(itemCount:rows.length<8?rows.length:8,itemBuilder:(_,i)=>ListTile(dense:true,leading:Text((i+1).toString()),title:Text(rows[i]['name']??rows[i]['code']??'—',maxLines:1,overflow:TextOverflow.ellipsis),subtitle:Text(rows[i]['phone']??rows[i]['base_unit_name']??'')))),
+        ])),
+        actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(tr3('اعتماد الاستيراد','Import','Importer')))],
+      ));
+      if(preview!=true)return;
+      final result=kind=='products'?await db.importProducts(rows):await db.importParties(table:kind,rows:rows);
+      if(kind=='products')await refresh();
+      final inserted=result['inserted']??0,updated=result['updated']??0,skipped=result['skipped']??0;
+      final errors=(result['errors'] as List?)??[];
+      message(tr3('اكتمل الاستيراد: أضيف '+inserted.toString()+'، حُدّث '+updated.toString()+'، تم تخطي '+skipped.toString(),'Import complete: '+inserted.toString()+' added, '+updated.toString()+' updated, '+skipped.toString()+' skipped','Importation terminée : '+inserted.toString()+' ajoutés, '+updated.toString()+' mis à jour, '+skipped.toString()+' ignorés'));
+      if(errors.isNotEmpty&&mounted){
+        await showDialog<void>(context:context,builder:(d)=>AlertDialog(
+          title:Text(tr3('ملاحظات الاستيراد','Import notes','Notes d’importation')),
+          content:SizedBox(width:420,height:260,child:ListView(children:errors.take(40).map((e)=>Text(e.toString())).toList())),
+          actions:[TextButton(onPressed:()=>Navigator.pop(d),child:Text(t('confirm')))],
+        ));
+      }
+    }catch(e){message(tr3('تعذر استيراد الملف: '+e.toString(),'Could not import file: '+e.toString(),'Impossible d’importer le fichier : '+e.toString()));}
+  }
+
+  Future<void> exportMasterData(String kind,{bool csv=false}) async {
+    try{
+      final headers=<String>[];
+      final rows=<Map<String,String>>[];
+      if(kind=='suppliers'||kind=='customers'){
+        headers.addAll(['name','phone','address','notes']);
+        final records=await db.listParties(kind);
+        for(final r in records){rows.add({'name':(r['name']??'').toString(),'phone':(r['phone']??'').toString(),'address':(r['address']??'').toString(),'notes':(r['notes']??'').toString()});}
+      }else{
+        headers.addAll(['code','name','category','base_unit_name','tracking_mode','base_sale_price','supply_sale_price','unit_definitions']);
+        final records=await db.listProducts();
+        for(final p in records){
+          final units=await db.listUnits(p['id'] as int);
+          final baseName=p['base_unit_name'].toString();
+          final base=units.where((u)=>u['unit_name']==baseName).toList();
+          final purchase=units.where((u)=>(u['is_purchase_unit'] as num? ?? 0)==1).toList();
+          final nested=units.where((u)=>u['unit_name']!=baseName).toList()..sort((a,b)=>(b['factor_to_base'] as num).compareTo(a['factor_to_base'] as num));
+          final definitions=<String>[];
+          for(var i=0;i<nested.length;i++){
+            final current=(nested[i]['factor_to_base'] as num).toDouble();
+            final next=i+1<nested.length?(nested[i+1]['factor_to_base'] as num).toDouble():1.0;
+            definitions.add(nested[i]['unit_name'].toString()+'='+(current/next).toString());
+          }
+          rows.add({'code':(p['code']??'').toString(),'name':(p['name']??'').toString(),'category':(p['category']??'').toString(),'base_unit_name':baseName,'tracking_mode':(p['tracking_mode']??'count').toString(),'base_sale_price':base.isEmpty?'0':(((base.first['sale_price_minor'] as num?)??0)/100).toStringAsFixed(2),'supply_sale_price':purchase.isEmpty?'0':(((purchase.first['sale_price_minor'] as num?)??0)/100).toStringAsFixed(2),'unit_definitions':definitions.join(',')});
+        }
+      }
+      final bytes=MasterDataTransfer.encodeRows(headers,rows,csv:csv);
+      final ext=csv?'csv':'xlsx';
+      await MasterDataTransfer.shareExport(bytes:bytes,filename:'naeemsoft-'+kind+'.'+ext,csv:csv);
+    }catch(e){message(tr3('تعذر تصدير البيانات: '+e.toString(),'Could not export data: '+e.toString(),'Impossible d’exporter les données : '+e.toString()));}
   }
 
   Future<void> showDeliveries() async {

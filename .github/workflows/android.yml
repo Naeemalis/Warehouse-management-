@@ -5,7 +5,7 @@ on:
   push:
     branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier, feature/multilingual-reports-printing, feature/return-documents]
   pull_request:
-    branches: [main, feature/wms-foundation]
+    branches: [main, feature/wms-foundation, feature/master-data-import-export]
 
 jobs:
   validate-and-build:
