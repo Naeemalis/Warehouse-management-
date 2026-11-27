@@ -987,7 +987,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                 final doc=pending[i];
                 return Card(child:ListTile(
                   title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
-                  subtitle:Text(doc['kind']=='receipt'?t('receipt')
+                  subtitle:Text(doc['document_type']=='sale'?tr3('مبيعات','Sales','Ventes'):doc['kind']=='receipt'?t('receipt')
                     :doc['kind']=='issue'?t('issue')
                     :doc['kind']=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
                     :tr3('مرتجع مورد','Supplier return','Retour fournisseur')),
@@ -1120,7 +1120,9 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
               pw.Center(child: pw.Text(
                 documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
-                    : documentKind == 'issue'
+                    : documentKind == 'issue' && doc['document_type']=='sale'
+                        ? tr3('فاتورة مبيعات', 'Sales Invoice', 'Facture de vente')
+                        : documentKind == 'issue'
                         ? tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie')
                         : documentKind == 'return_in'
                             ? tr3('مرتجع عميل', 'Customer Return', 'Retour client')
@@ -1575,6 +1577,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
       content:SizedBox(width:420,child:SingleChildScrollView(child:Column(
         crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
           Text('${doc['party_name_snapshot']??''}'),
+          Text(doc['document_type']=='sale'?tr3('نوع المستند: مبيعات','Document type: Sale','Type de document : vente'):doc['kind']=='issue'?tr3('نوع المستند: صرف','Document type: Issue','Type de document : sortie'):doc['kind']=='receipt'?tr3('نوع المستند: استلام','Document type: Receipt','Type de document : réception'):tr3('نوع المستند: مرتجع','Document type: Return','Type de document : retour')),
           Text('${doc['status']} · ${doc['created_at']}'),
           const Divider(),
           ...lines.map((l)=>ListTile(
