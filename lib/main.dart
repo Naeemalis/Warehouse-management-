@@ -512,7 +512,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
       }
       return;
     }
-    if (productRows.isEmpty) { message(t('empty')); await addProduct(); return; }
+    if (productRows.isEmpty) { await addProduct(); productRows=await db.listProducts(); if(productRows.isEmpty)return; }
     int? partyId=partyRows.first['id'] as int;
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
     List<Map<String,Object?>> units=await db.listPurchaseUnits(productId);
