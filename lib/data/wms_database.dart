@@ -59,8 +59,9 @@ class WmsDatabase {
             var remaining=(m['quantity_base'] as num).toDouble();
             final batches=await db.rawQuery("""
               SELECT b.*,b.received_quantity_base-COALESCE((
-                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base WHEN sm.direction='IN' AND sd.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
                 JOIN stock_movements sm ON sm.id=a.stock_movement_id
+                JOIN documents sd ON sd.id=sm.document_id
                 WHERE a.batch_id=b.id
               ),0) available_base
               FROM stock_batches b WHERE b.product_id=? ORDER BY b.created_at,b.id
