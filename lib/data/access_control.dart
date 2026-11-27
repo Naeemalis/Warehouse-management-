@@ -84,6 +84,15 @@ extension WmsAccessControl on WmsDatabase {
     return db.query('permissions', orderBy: 'module, permission_key');
   }
 
+  Future<bool> roleHasPermission(int roleId, String permissionKey) async {
+    final db = await database;
+    final rows = await db.query('role_permissions',
+      columns: ['is_allowed'],
+      where: 'role_id=? AND permission_key=?',
+      whereArgs: [roleId, permissionKey], limit: 1);
+    return rows.isNotEmpty && rows.first['is_allowed'] == 1;
+  }
+
   Future<void> setRolePermission({
     required int roleId, required String permissionKey, required bool allowed,
   }) async {
