@@ -1260,9 +1260,5 @@ extension WmsCompanyProfile on WmsDatabase {
     });
   }
 
-  Future<String> companyName() async {
-    final profile = await companyProfile();
-    return profile['company_name'] ?? '';
-  }
 }
 
