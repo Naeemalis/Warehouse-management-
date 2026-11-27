@@ -7,8 +7,8 @@ void main() {
     final rows=[{'name':'مورد, رئيسي','phone':'123','notes':'قال "متاح", نعم'}];
     final bytes=MasterDataTransfer.encodeRows(headers,rows,csv:true);
     final decoded=MasterDataTransfer.readRows(bytes,'sample.csv');
-    expect(decoded.single['name'],'مورد، رئيسي');
-    expect(decoded.single['notes'],'قال "متاح"، نعم');
+    expect(decoded.single['name'],'مورد, رئيسي');
+    expect(decoded.single['notes'],'قال "متاح", نعم');
   });
 
   test('Excel export/import round-trips master data', () {
