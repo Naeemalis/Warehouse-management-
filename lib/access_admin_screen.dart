@@ -106,7 +106,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
     final ok = await showDialog<bool>(context: context, builder: (ctx) =>
       AlertDialog(title: Text(tr('إضافة قسم')),
         content: TextField(controller: name, decoration:
-          const InputDecoration(labelText: tr('اسم القسم'))),
+          InputDecoration(labelText: tr('اسم القسم'))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx,false),
             child: Text(tr('إلغاء'))),
@@ -125,7 +125,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
     final ok = await showDialog<bool>(context: context, builder: (ctx) =>
       AlertDialog(title: Text(tr('إضافة دور وظيفي')),
         content: TextField(controller: name, decoration:
-          const InputDecoration(labelText: tr('اسم الدور'))),
+          InputDecoration(labelText: tr('اسم الدور'))),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx,false),
             child: Text(tr('إلغاء'))),
@@ -151,17 +151,17 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
         content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,
           children: [
             TextField(controller: fullName, decoration:
-              const InputDecoration(labelText: tr('الاسم الكامل'))),
+              InputDecoration(labelText: tr('الاسم الكامل'))),
             TextField(controller: username, decoration:
-              const InputDecoration(labelText: tr('اسم الدخول'))),
+              InputDecoration(labelText: tr('اسم الدخول'))),
             TextField(controller: password, obscureText: true, decoration:
-              const InputDecoration(labelText: tr('كلمة المرور'))),
+              InputDecoration(labelText: tr('كلمة المرور'))),
             const SizedBox(height: 10),
             DropdownButtonFormField<int?>(
               value: departmentId, decoration:
-                const InputDecoration(labelText: tr('القسم')),
+                InputDecoration(labelText: tr('القسم')),
               items: [
-                const DropdownMenuItem<int?>(value: null, child: Text(tr('بدون قسم'))),
+                DropdownMenuItem<int?>(value: null, child: Text(tr('بدون قسم'))),
                 ...departments.where((d)=>d['is_active']==1).map((d)=>
                   DropdownMenuItem<int?>(value:d['id'] as int,
                     child:Text(d['name'].toString()))),
@@ -171,9 +171,9 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
             const SizedBox(height: 8),
             DropdownButtonFormField<int?>(
               value: roleId, decoration:
-                const InputDecoration(labelText: tr('الدور الوظيفي')),
+                InputDecoration(labelText: tr('الدور الوظيفي')),
               items: [
-                const DropdownMenuItem<int?>(value: null, child: Text(tr('بدون دور'))),
+                DropdownMenuItem<int?>(value: null, child: Text(tr('بدون دور'))),
                 ...roles.where((r)=>r['is_active']==1).map((r)=>
                   DropdownMenuItem<int?>(value:r['id'] as int,
                     child:Text(r['name'].toString()))),
@@ -332,12 +332,12 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
   Widget build(BuildContext context) {
     if(loading)return const Scaffold(body:Center(child:CircularProgressIndicator()));
     return DefaultTabController(length:4,child:Scaffold(
-      appBar:AppBar(title:Text(tr('الإدارة والصلاحيات')),bottom:const TabBar(
+      appBar:AppBar(title:Text(tr('الإدارة والصلاحيات')),bottom:TabBar(
         isScrollable:true,tabs:[
-          Tab(text:'المستخدمون',icon:Icon(Icons.people)),
-          Tab(text:'الأقسام',icon:Icon(Icons.apartment)),
-          Tab(text:'الأدوار والصلاحيات',icon:Icon(Icons.admin_panel_settings)),
-          Tab(text:'المؤسسة',icon:Icon(Icons.business)),
+          Tab(text:tr('المستخدمون'),icon:Icon(Icons.people)),
+          Tab(text:tr('الأقسام'),icon:Icon(Icons.apartment)),
+          Tab(text:tr('الأدوار والصلاحيات'),icon:Icon(Icons.admin_panel_settings)),
+          Tab(text:tr('المؤسسة'),icon:Icon(Icons.business)),
         ])),
       body:TabBarView(children:[usersTab(),departmentsTab(),rolesTab(),companyTab()]),
     ));
