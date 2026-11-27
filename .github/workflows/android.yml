@@ -18,6 +18,25 @@ jobs:
           cache: true
       - name: Generate Android platform project
         run: flutter create . --platforms=android --project-name naeemsoft_wms --no-pub
+      - name: Set Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = [Path('android/app/build.gradle.kts'), Path('android/app/build.gradle')]
+          for path in candidates:
+              if not path.exists():
+                  continue
+              text = path.read_text()
+              updated = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              updated = updated.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 36')
+              if updated == text and 'compileSdk = 36' not in text and 'compileSdk 36' not in text:
+                  raise SystemExit(f'Could not find compileSdk declaration in {path}')
+              path.write_text(updated)
+              print(f'Configured compileSdk 36 in {path}')
+              break
+          else:
+              raise SystemExit('Android app Gradle file not found')
+          PY
       - name: Apply NaeemSoft WMS app name and launcher icon
         run: python3 tooling/generate_android_branding.py
       - name: Remove generated sample widget test
