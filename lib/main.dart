@@ -197,7 +197,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
-              PopupMenuItem(value:'admin',child:Text('المستخدمون والأقسام والصلاحيات')),
+              PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, Departments & Permissions','Utilisateurs, services et autorisations'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
@@ -1201,7 +1201,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
 
 
   Future<void> showAccessAdmin() async {
-    await Navigator.push(context,MaterialPageRoute(builder:(_)=>const AccessAdminScreen()));
+    await Navigator.push(context,MaterialPageRoute(builder:(_)=>AccessAdminScreen(language: lang)));
   }
 
   Future<void> showReturns() async {
