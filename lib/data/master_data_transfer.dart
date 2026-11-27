@@ -62,7 +62,7 @@ class MasterDataTransfer {
       for(final row in rows){lines.add(headers.map((h)=>_csvCell(row[h]??'')).join(','));}
       return Uint8List.fromList(utf8.encode('\uFEFF'+lines.join('\r\n')+'\r\n'));
     }
-    final workbook=Excel.createExcel();final sheet=workbook['Data'];
+    final workbook=Excel.createExcel();final sheet=workbook['Sheet1'];
     sheet.appendRow(headers.map((v)=>TextCellValue(v)).toList());
     for(final row in rows){sheet.appendRow(headers.map((h)=>TextCellValue(row[h]??'')).toList());}
     final encoded=workbook.encode();if(encoded==null)throw StateError('Could not encode Excel workbook');
