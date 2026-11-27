@@ -780,7 +780,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
               children:rows.map((p)=>ListTile(
                 leading:const Icon(Icons.person_outline),
                 title:Text('${p['name']}'),
-                subtitle:Text('${p['phone']??''}'),
+                subtitle:Text([p['phone'],p['address']].where((v)=>v!=null&&v.toString().trim().isNotEmpty).join(' · ')),
                 trailing:PopupMenuButton<String>(
                   onSelected:(action) async {
                     if(action=='edit'){await editParty(kind,p);final refreshed=await db.listParties(kind);setSheet(()=>rows=refreshed);}
@@ -802,19 +802,25 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
               onPressed:() async {
                 final name=TextEditingController();
                 final phone=TextEditingController();
+                final address=TextEditingController();
+                final notes=TextEditingController();
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
-                  content:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
+                  content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+                    TextField(controller:name,decoration:InputDecoration(labelText:tr3('الاسم الكامل / اسم الجهة','Full name / Organization','Nom complet / Organisation'))),
                     const SizedBox(height:8),
-                    TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
-                  ]),
+                    TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+                    const SizedBox(height:8),
+                    TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+                    const SizedBox(height:8),
+                    TextField(controller:notes,maxLines:2,decoration:InputDecoration(labelText:tr3('ملاحظات (اختياري)','Notes (optional)','Notes (facultatif)'))),
+                  ])),
                   actions:[
                     TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
                     FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save'))),
                   ]));
                 if(ok==true&&name.text.trim().isNotEmpty){
-                  await db.saveParty(supplier:kind=='suppliers',name:name.text,phone:phone.text);
+                  await db.saveParty(supplier:kind=='suppliers',name:name.text,phone:phone.text,address:address.text,notes:notes.text);
                   final r=await db.listParties(kind);
                   setSheet(() { rows=r; });
                 }
@@ -992,17 +998,23 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   Future<void> editParty(String table, Map<String,Object?> party) async {
     final name=TextEditingController(text:'${party['name']}');
     final phone=TextEditingController(text:'${party['phone']??''}');
+    final address=TextEditingController(text:'${party['address']??''}');
+    final notes=TextEditingController(text:'${party['notes']??''}');
     final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
       title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:InputDecoration(labelText:tr3('الاسم الكامل / اسم الجهة','Full name / Organization','Nom complet / Organisation'))),
         const SizedBox(height:8),
-        TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
-      ]),
+        TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+        const SizedBox(height:8),
+        TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+        const SizedBox(height:8),
+        TextField(controller:notes,maxLines:2,decoration:InputDecoration(labelText:tr3('ملاحظات (اختياري)','Notes (optional)','Notes (facultatif)'))),
+      ])),
       actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
     ));
     if(ok==true){
-      await db.updateParty(table:table,id:party['id'] as int,name:name.text,phone:phone.text);
+      await db.updateParty(table:table,id:party['id'] as int,name:name.text,phone:phone.text,address:address.text,notes:notes.text);
       message(tr3('تم تحديث البيانات','Details updated','Informations mises à jour'));
     }
   }
