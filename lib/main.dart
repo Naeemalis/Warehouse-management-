@@ -816,7 +816,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
                   content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:tr3('الاسم الكامل / اسم الجهة','Full name / Organization','Nom complet / Organisation'))),
+                    TextField(controller:name,decoration:InputDecoration(labelText:kind=='suppliers'?tr3('اسم المورد / اسم المؤسسة','Supplier / company name','Fournisseur / nom de l’entreprise'):tr3('اسم العميل الكامل','Customer full name','Nom complet du client'))),
                     const SizedBox(height:8),
                     TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
                     const SizedBox(height:8),
@@ -1012,7 +1012,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
       title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
       content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:tr3('الاسم الكامل / اسم الجهة','Full name / Organization','Nom complet / Organisation'))),
+        TextField(controller:name,decoration:InputDecoration(labelText:table=='suppliers'?tr3('اسم المورد / اسم المؤسسة','Supplier / company name','Fournisseur / nom de l’entreprise'):tr3('اسم العميل الكامل','Customer full name','Nom complet du client'))),
         const SizedBox(height:8),
         TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
         const SizedBox(height:8),
