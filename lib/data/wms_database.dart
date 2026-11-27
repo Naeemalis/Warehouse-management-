@@ -1215,4 +1215,54 @@ extension WmsFinanceAndHistory on WmsDatabase {
       });
     });
   }
+
+extension WmsCompanyProfile on WmsDatabase {
+  Future<Map<String, String>> companyProfile() async {
+    final db = await database;
+    final rows = await db.query('app_settings');
+    final values = <String, String>{};
+    for (final row in rows) {
+      values[row['setting_key'] as String] = row['setting_value'] as String;
+    }
+    return {
+      'company_name': values['company_name'] ?? '',
+      'company_phone': values['company_phone'] ?? '',
+      'company_email': values['company_email'] ?? '',
+      'company_country': values['company_country'] ?? '',
+      'company_city': values['company_city'] ?? '',
+      'company_area': values['company_area'] ?? '',
+      'company_address': values['company_address'] ?? '',
+      'company_website': values['company_website'] ?? '',
+      'company_registration': values['company_registration'] ?? '',
+      'company_logo_base64': values['company_logo_base64'] ?? '',
+    };
+  }
+
+  Future<void> saveCompanyProfile(Map<String, String> profile) async {
+    final name = (profile['company_name'] ?? '').trim();
+    if (name.isEmpty) throw ArgumentError('Company name is required');
+    const allowed = {
+      'company_name', 'company_phone', 'company_email', 'company_country',
+      'company_city', 'company_area', 'company_address', 'company_website',
+      'company_registration', 'company_logo_base64',
+    };
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final entry in profile.entries) {
+        if (!allowed.contains(entry.key)) continue;
+        await txn.insert(
+          'app_settings',
+          {'setting_key': entry.key, 'setting_value': entry.value.trim()},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  Future<String> companyName() async {
+    final profile = await companyProfile();
+    return profile['company_name'] ?? '';
+  }
+}
+
 }
