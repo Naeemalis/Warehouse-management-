@@ -62,7 +62,7 @@ jobs:
                   if not gradle.exists():
                       continue
                   source = gradle.read_text()
-                  updated = re.sub(r'(compileSdkVersion\\s+|compileSdk\\s*=\\s*)34\\b', r'\\g<1>36', source)
+                  updated = re.sub(r'(compileSdkVersion\s+|compileSdk\s*=\s*)34\b', r'\g<1>36', source)
                   if updated != source:
                       gradle.write_text(updated)
                       changed.append(str(gradle))
