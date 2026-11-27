@@ -232,14 +232,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
             onChanged:(v)async{await db.setRoleActive(r['id'] as int,v);await load();},
           ),
           ...permissions.map((p)=>FutureBuilder<bool>(
-            future:db.userHasPermission(-1,'__never__').then((_) async {
-              final dbx=await db.database;
-              final rows=await dbx.query('role_permissions',
-                columns:['is_allowed'],
-                where:'role_id=? AND permission_key=?',
-                whereArgs:[r['id'],p['permission_key']],limit:1);
-              return rows.isNotEmpty&&rows.first['is_allowed']==1;
-            }),
+            future:db.roleHasPermission(r['id'] as int,p['permission_key'] as String),
             builder:(ctx,snapshot)=>SwitchListTile(
               dense:true,title:Text(p['label_ar'].toString()),
               subtitle:Text(p['permission_key'].toString()),
