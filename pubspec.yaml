@@ -12,7 +12,8 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: ^0.20.3
-  excel: ^4.0.6
+  archive: ^4.0.7
+  xml: ^7.0.1
   file_picker: ^8.1.7
   share_plus: ^10.1.4
   cross_file: ^0.3.4+2
