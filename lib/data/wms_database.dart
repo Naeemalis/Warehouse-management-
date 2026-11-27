@@ -2,11 +2,14 @@ import '../domain/unit_conversion.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+/// Local SQLite repository for WMS master data, documents, stock ledger, and accounts.
+/// Keep business rules and transactional stock posting in this data layer.
 class WmsDatabase {
   WmsDatabase._();
   static final WmsDatabase instance = WmsDatabase._();
   Database? _database;
 
+  /// Opens the local database, enables foreign keys, and applies schema migrations.
   Future<Database> get database async {
     if (_database != null) return _database!;
     final root = await getDatabasesPath();
@@ -127,6 +130,7 @@ class WmsDatabase {
     return _database!;
   }
 
+  /// Creates the core schema, indexes, defaults, and traceability tables for a new database.
   Future<void> _createSchema(Database db, int version) async {
     await db.execute('''CREATE TABLE products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,6 +244,7 @@ class WmsDatabase {
     await _createExpiryTraceabilitySchema(db);
   }
 
+  /// Creates expiry-split, stock-batch, and movement-allocation tables when absent.
   Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
     await db.execute('''CREATE TABLE IF NOT EXISTS document_line_expiry_splits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,6 +282,7 @@ class WmsDatabase {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_movement_allocations_batch ON stock_movement_allocations(batch_id)');
   }
 
+  /// Calculates a product's base-unit balance from posted IN and OUT stock movements.
   Future<double> getAvailableStock(int productId) async {
     final db = await database;
     final rows = await db.rawQuery('''SELECT COALESCE(SUM(CASE
@@ -286,6 +292,7 @@ class WmsDatabase {
   }
 
 
+  /// Calculates remaining base quantity in one batch from its movement allocations.
   Future<double> _batchAvailableBase(DatabaseExecutor txn, int batchId) async {
     final rows = await txn.rawQuery("""
       SELECT b.received_quantity_base-COALESCE((
@@ -300,6 +307,7 @@ class WmsDatabase {
     return (rows.first['available_base'] as num).toDouble();
   }
 
+  /// Sums pending and approved return quantities against one original invoice line.
   Future<double> _activeReturnedBase(DatabaseExecutor txn, int sourceLineId, {int? excludingDocumentId}) async {
     final rows=await txn.rawQuery("""
       SELECT COALESCE(SUM(l.base_quantity),0) AS returned_base
@@ -312,6 +320,7 @@ class WmsDatabase {
     return (rows.first['returned_base'] as num).toDouble();
   }
 
+  /// Validates return direction, approved source, source lines, return limits, and source batches.
   Future<void> _validateReturnDocument(DatabaseExecutor txn, Map<String,Object?> doc, {int? excludingDocumentId}) async {
     final kind=doc['kind'] as String;
     if(kind!='return_in' && kind!='return_out') return;
@@ -362,6 +371,8 @@ class WmsDatabase {
     }
   }
 
+  /// Creates a draft return linked to an approved source invoice; does not post stock.
+  /// Each return line must reference an original document-line ID and positive quantity.
   Future<int> createReturnDocument({
     required int originalDocumentId,
     required String kind,
@@ -424,6 +435,8 @@ class WmsDatabase {
   }
 
   // Only pending documents can be approved. Posting and status transition are atomic.
+  /// Atomically approves a pending document and posts its stock ledger movements.
+  /// Validates stock availability and return limits before committing.
   Future<void> approveDocument({required int documentId, required int approverId}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -602,6 +615,7 @@ class WmsDatabase {
     });
   }
 
+  /// Records physical delivery details for an approved issue document.
   Future<void> confirmDelivery({required int documentId, required int userId, required String recipientName, String? signatureNote}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -621,6 +635,7 @@ class WmsDatabase {
 
 
 extension WmsCatalogOperations on WmsDatabase {
+  /// Lists active products with derived base stock, nearest expiry, and latest activity.
   Future<List<Map<String, Object?>>> listProducts() async {
     final db = await database;
     return db.rawQuery('''
@@ -642,12 +657,14 @@ extension WmsCatalogOperations on WmsDatabase {
     ''');
   }
 
+  /// Returns active issue/sale units, conversion factors, and configured sale prices.
   Future<List<Map<String, Object?>>> listUnits(int productId) async {
     final db = await database;
     return db.query('product_units', where: 'product_id=? AND is_active=1',
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  /// Returns the active purchase unit configured for the selected product.
   Future<List<Map<String, Object?>>> listPurchaseUnits(int productId) async {
     final db = await database;
     return db.query('product_units',
@@ -655,6 +672,7 @@ extension WmsCatalogOperations on WmsDatabase {
       whereArgs: [productId], orderBy: 'sort_order, id');
   }
 
+  /// Creates a product and its nested packaging-unit definitions in one transaction.
   Future<int> saveProduct({
     required String name,
     required String baseUnit,
@@ -695,6 +713,7 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Lists active suppliers or customers from the selected party table.
   Future<List<Map<String, Object?>>> listParties(String table) async {
     if (table != 'suppliers' && table != 'customers') {
       throw ArgumentError('Unsupported party table');
@@ -703,6 +722,7 @@ extension WmsCatalogOperations on WmsDatabase {
     return db.query(table, where: 'is_active=1', orderBy: 'name COLLATE NOCASE');
   }
 
+  /// Creates a supplier or customer with its name and optional phone number.
   Future<int> saveParty({required bool supplier, required String name, String? phone}) async {
     if (name.trim().isEmpty) throw ArgumentError('Name is required');
     final db = await database;
@@ -712,6 +732,8 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Creates a draft receipt or issue and persists historical line snapshots.
+  /// Does not affect stock; submission and approval are separate operations.
   Future<int> createDocument({
     required String kind,
     required String partyType,
@@ -790,6 +812,8 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Moves a non-empty draft into pending approval and records the submission event.
+  /// Does not create stock movements.
   Future<void> submitDocument({required int documentId, required int userId}) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -814,12 +838,14 @@ extension WmsCatalogOperations on WmsDatabase {
     });
   }
 
+  /// Returns documents currently waiting for approval, including their line summaries.
   Future<List<Map<String, Object?>>> pendingDocuments() async {
     final db = await database;
     return db.query('documents', where:"status='pending_approval'",
       orderBy:'submitted_at ASC');
   }
 
+  /// Rejects a pending document, stores the reason, and records the rejection event.
   Future<void> rejectDocument({required int documentId, required int userId, required String reason}) async {
     if (reason.trim().isEmpty) throw ArgumentError('Rejection reason is required');
     final db = await database;
@@ -841,6 +867,7 @@ extension WmsCatalogOperations on WmsDatabase {
 
 
 extension WmsStockTraceability on WmsDatabase {
+  /// Returns received and remaining quantities for each stock batch of a product.
   Future<List<Map<String,Object?>>> productBatchBalances(int productId) async {
     final db=await database;
     return db.rawQuery("""
@@ -855,6 +882,7 @@ extension WmsStockTraceability on WmsDatabase {
     """,[productId]);
   }
 
+  /// Returns the stock ledger history with related document and allocation details.
   Future<List<Map<String,Object?>>> productMovementHistory(int productId) async {
     final db=await database;
     return db.rawQuery("""
@@ -872,6 +900,7 @@ extension WmsStockTraceability on WmsDatabase {
 }
 
 extension WmsDeliveryOperations on WmsDatabase {
+  /// Lists approved issue documents awaiting physical delivery confirmation.
   Future<List<Map<String, Object?>>> awaitingDeliveryDocuments() async {
     final db = await database;
     return db.query('documents',
@@ -881,6 +910,7 @@ extension WmsDeliveryOperations on WmsDatabase {
 }
 
 extension WmsProductMaintenance on WmsDatabase {
+  /// Updates product master data and writes an audit entry; historical snapshots are preserved.
   Future<void> updateProduct({
     required int productId,
     required String name,
@@ -911,6 +941,7 @@ extension WmsProductMaintenance on WmsDatabase {
 
 
 extension WmsFinanceAndHistory on WmsDatabase {
+  /// Lists documents filtered by kind or party, with calculated totals and line counts.
   Future<List<Map<String, Object?>>> listDocuments({String? kind, int? partyId}) async {
     final db = await database;
     final clauses = <String>[];
@@ -928,6 +959,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     ''', args);
   }
 
+  /// Returns source invoice lines with returned and remaining returnable quantities.
   Future<List<Map<String,Object?>>> returnableDocumentLines(int originalDocumentId) async {
     final db=await database;
     final docs=await db.query('documents',where:'id=? AND status=? AND kind IN (?,?)',
@@ -946,6 +978,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     """,[originalDocumentId]);
   }
 
+  /// Loads a document header, its detail lines, and the calculated document total.
   Future<Map<String, Object?>> documentDetails(int documentId) async {
     final db = await database;
     final docs = await db.rawQuery('''
@@ -959,6 +992,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     return {'document':docs.first, 'lines':lines};
   }
 
+  /// Records a customer payment against the overall customer balance, not a specific invoice.
   Future<void> addCustomerPayment({
     required int customerId, required int amountMinor,
     required String paymentDate, String method='cash',
@@ -984,6 +1018,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 
+  /// Records a supplier payment against the overall supplier balance, not a specific invoice.
   Future<void> addSupplierPayment({
     required int supplierId, required int amountMinor,
     required String paymentDate, String method='cash',
@@ -1009,6 +1044,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 
+  /// Builds a supplier statement from approved receipts, approved returns, and payments.
   Future<Map<String, Object?>> supplierStatement(int supplierId) async {
     final db = await database;
     final partyRows = await db.query('suppliers', where:'id=?', whereArgs:[supplierId], limit:1);
@@ -1050,6 +1086,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     };
   }
 
+  /// Builds a customer statement from approved issues, approved returns, and payments.
   Future<Map<String, Object?>> customerStatement(int customerId) async {
     final db = await database;
     final customerRows = await db.query('customers', where:'id=?', whereArgs:[customerId], limit:1);
@@ -1091,6 +1128,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     };
   }
 
+  /// Updates master data for a supplier or customer in the selected party table.
   Future<void> updateParty({
     required String table, required int id, required String name, String? phone,
   }) async {
@@ -1110,12 +1148,14 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 
+  /// Deactivates a supplier or customer while preserving linked transaction history.
   Future<void> archiveParty({required String table, required int id}) async {
     if (table!='customers' && table!='suppliers') throw ArgumentError('Unsupported party table');
     final db=await database;
     await db.update(table,{'is_active':0},where:'id=?',whereArgs:[id]);
   }
 
+  /// Deactivates a product without deleting historical documents or stock movements.
   Future<void> archiveProduct(int productId) async {
     final db=await database;
     await db.transaction((txn) async {
