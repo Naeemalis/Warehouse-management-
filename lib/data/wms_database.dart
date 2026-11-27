@@ -1215,6 +1215,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
       });
     });
   }
+}
 
 extension WmsCompanyProfile on WmsDatabase {
   Future<Map<String, String>> companyProfile() async {
@@ -1265,4 +1266,3 @@ extension WmsCompanyProfile on WmsDatabase {
   }
 }
 
-}
