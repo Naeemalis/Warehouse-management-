@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 8,
+      version: 9,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -91,6 +91,9 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 9) {
+          await db.execute('ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT \'\'');
         }
         if (oldVersion < 8) {
           await _createAccessControlSchema(db);
@@ -269,6 +272,7 @@ class WmsDatabase {
       username TEXT NOT NULL COLLATE NOCASE UNIQUE,
       full_name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL DEFAULT '',
       department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
       role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL,
       is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
