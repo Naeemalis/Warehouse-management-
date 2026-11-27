@@ -49,24 +49,47 @@ jobs:
           import json
           import re
           from pathlib import Path
+          from urllib.parse import unquote, urlparse
 
-          config = json.loads(Path('.dart_tool/package_config.json').read_text())
+          config_path = Path('.dart_tool/package_config.json')
+          config = json.loads(config_path.read_text())
           changed = []
+          file_picker_found = False
           for package in config.get('packages', []):
-              root_uri = package.get('rootUri', '')
-              if not root_uri.startswith('file:'):
+              if package.get('name') != 'file_picker':
                   continue
-              package_root = Path(root_uri.removeprefix('file://'))
-              gradle_files = [package_root / 'android/build.gradle', package_root / 'android/build.gradle.kts']
-              for gradle in gradle_files:
-                  if not gradle.exists():
-                      continue
-                  source = gradle.read_text()
-                  updated = re.sub(r'(compileSdkVersion\s+|compileSdk\s*=\s*)34\b', r'\g<1>36', source)
-                  if updated != source:
-                      gradle.write_text(updated)
-                      changed.append(str(gradle))
-          print('Updated Android plugin compileSdk in: ' + (', '.join(changed) if changed else 'no package overrides needed'))
+              root_uri = package.get('rootUri', '')
+              parsed = urlparse(root_uri)
+              if parsed.scheme == 'file':
+                  package_root = Path(unquote(parsed.path))
+              else:
+                  package_root = (config_path.parent / unquote(root_uri)).resolve()
+              gradle = package_root / 'android/build.gradle'
+              if not gradle.exists():
+                  gradle = package_root / 'android/build.gradle.kts'
+              if not gradle.exists():
+                  raise SystemExit(f'file_picker Gradle file not found under {package_root}')
+              source = gradle.read_text()
+              updated = re.sub(
+                  r'(compileSdk\\s*=\\s*)(?:34|flutter\\.compileSdkVersion)\\b',
+                  r'\\g<1>36',
+                  source
+              )
+              updated = re.sub(
+                  r'(compileSdkVersion\\s+)(?:34|flutter\\.compileSdkVersion)\\b',
+                  r'\\g<1>36',
+                  updated
+              )
+              if updated == source and not re.search(r'compileSdk\\s*=\\s*36|compileSdkVersion\\s+36', source):
+                  raise SystemExit(f'Could not align file_picker compileSdk in {gradle}')
+              if updated != source:
+                  gradle.write_text(updated)
+              file_picker_found = True
+              changed.append(str(gradle))
+              print(f'file_picker compileSdk set to 36: {gradle}')
+          if not file_picker_found:
+              raise SystemExit('file_picker package was not found in package_config.json')
+          print('Aligned file_picker Android compile SDK to API 36.')
           PY
       - name: Analyze Dart code
         run: flutter analyze --no-fatal-infos
