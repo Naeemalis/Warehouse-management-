@@ -80,9 +80,8 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
     "الإدارة": {'en': "Administration", 'fr': "Administration"},
     "الإعدادات": {'en': "Settings", 'fr': "Paramètres"},
     "معلومات سرية": {'en': "Confidential information", 'fr': "Informations confidentielles"},
-    "اسم المؤسسة": {'en': "Organization name", 'fr': "Nom de l’organisation"},
   };
-  String tr(String value) => _translations[value]?[language] ?? value;
+  String tr(String value) => _translations[value]?[widget.language] ?? value;
 
   final db = WmsDatabase.instance;
   final company = TextEditingController();
@@ -251,7 +250,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
                 subtitle:Text(tr(p['module'].toString())),
                 trailing:DropdownButton<String>(
                   value: overrides[key]==null ? 'inherit' : (overrides[key]==true?'allow':'deny'),
-                  items:const [
+                  items: [
                     DropdownMenuItem(value:'inherit',child:Text(tr('حسب الدور'))),
                     DropdownMenuItem(value:'allow',child:Text(tr('سماح'))),
                     DropdownMenuItem(value:'deny',child:Text(tr('منع'))),
