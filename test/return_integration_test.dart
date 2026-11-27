@@ -74,7 +74,7 @@ void main() {
       required int sourceDocumentId,
       required int sourceLineId,
       required String kind,
-      required int quantity,
+      required double quantity,
     }) async {
       final returnId = await wms.createReturnDocument(
         originalDocumentId: sourceDocumentId,
@@ -122,7 +122,7 @@ void main() {
       sourceDocumentId: receiptId,
       sourceLineId: receiptLineId,
       kind: 'return_out',
-      quantity: 2,
+      quantity: 0.2, // 0.2 carton = 2 base pieces
     );
 
     await expectLater(
@@ -131,7 +131,7 @@ void main() {
         kind: 'return_out',
         createdBy: 1,
         lines: [
-          {'source_line_id': receiptLineId, 'quantity': 9, 'reason': 'Over-return attempt'},
+          {'source_line_id': receiptLineId, 'quantity': 0.9, 'reason': 'Over-return attempt'}, // 9 pieces; only 8 remain
         ],
       ),
       throwsStateError,
@@ -139,7 +139,7 @@ void main() {
 
     final products = await wms.listProducts();
     final product = products.singleWhere((row) => row['id'] == productId);
-    expect((product['stock_base'] as num).toDouble(), 3);
+    expect((product['stock_base'] as num).toDouble(), 8);
 
     final returnableIssueLines = await wms.returnableDocumentLines(issueId);
     expect((returnableIssueLines.single['remaining_base'] as num).toDouble(), 0);
