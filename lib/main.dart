@@ -197,7 +197,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
-              PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, departments & permissions','Utilisateurs, services et permissions'))),
+              PopupMenuItem(value:'admin',child:Text('المستخدمون والأقسام والصلاحيات')),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
@@ -1444,11 +1444,11 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                   final label=payment?tr3('دفعة','Payment','Paiement')
                     :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):tr3('فاتورة صرف','Issue invoice','Facture de sortie'));
                   return ListTile(
-                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    dense:true,leading:Icon(credit?Icons.receipt_long:Icons.payments),
                     title:Text('${e['document_no']} · $label'),
                     subtitle:Text('${e['entry_date']} · ${e['status']}'),
                     trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text(credit?'+${money(e['credit_minor'])}':'-${money(e['debit_minor'])}'),
                       Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
                     ]),
                   );
