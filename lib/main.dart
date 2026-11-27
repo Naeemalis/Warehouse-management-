@@ -498,7 +498,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   Future<void> _openReceiptTransaction({required bool receiving,Map<String,Object?>? selectedProduct}) async {
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
-    final productRows=await db.listProducts();
+    var productRows=await db.listProducts();
     if (!mounted) return;
     if (partyRows.isEmpty) {
       final controller=TextEditingController();
@@ -531,15 +531,74 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           items:partyRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
           onChanged:(v)=>setLocal(()=>partyId=v)),
         const SizedBox(height:10),
-        DropdownButtonFormField<int>(
-          value:productId,decoration:InputDecoration(labelText:t('product')),
-          items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listPurchaseUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; expirySplits.clear(); }); }),
-        const SizedBox(height:10),
-        DropdownButtonFormField<int>(
-          value:unitId,decoration:InputDecoration(labelText:t('unit')),
-          items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
+        Align(
+          alignment:AlignmentDirectional.centerStart,
+          child:Text(tr3('معرض الأصناف','Product gallery','Catalogue des produits'),
+            style:Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.bold))),
+        const SizedBox(height:6),
+        SizedBox(
+          height:productRows.isEmpty?58:190,
+          child:productRows.isEmpty
+            ? Center(child:Text(t('empty')))
+            : GridView.builder(
+                scrollDirection:Axis.horizontal,
+                gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount:2,mainAxisExtent:112,crossAxisSpacing:6,mainAxisSpacing:6),
+                itemCount:productRows.length,
+                itemBuilder:(context,index){
+                  final p=productRows[index];
+                  final selected=p['id']==productId;
+                  return Card(
+                    color:selected?Theme.of(ctx).colorScheme.primaryContainer:null,
+                    child:InkWell(
+                      borderRadius:BorderRadius.circular(10),
+                      onTap:() async {
+                        final v=p['id'] as int;
+                        final u=await db.listPurchaseUnits(v);
+                        setLocal(() {
+                          productId=v; units=u;
+                          unitId=u.isEmpty?null:u.first['id'] as int;
+                          quantity.clear(); price.clear(); expirySplits.clear();
+                        });
+                      },
+                      child:Padding(padding:const EdgeInsets.all(7),child:Column(
+                        mainAxisAlignment:MainAxisAlignment.center,
+                        children:[
+                          const Icon(Icons.inventory_2_outlined,size:22),
+                          const SizedBox(height:5),
+                          Text('${p['name']}',maxLines:2,textAlign:TextAlign.center,
+                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
+                          Text('${p['base_unit_name']}',style:Theme.of(ctx).textTheme.labelSmall),
+                        ]))),
+                  );
+                })),
+        Align(
+          alignment:AlignmentDirectional.centerStart,
+          child:TextButton.icon(
+            onPressed:() async {
+              await addProduct();
+              final refreshed=await db.listProducts();
+              if(refreshed.isEmpty)return;
+              refreshed.sort((a,b)=>(a['id'] as int).compareTo(b['id'] as int));
+              final newest=refreshed.last;
+              final v=newest['id'] as int;
+              final u=await db.listPurchaseUnits(v);
+              setLocal(() {
+                productRows=refreshed; productId=v; units=u;
+                unitId=u.isEmpty?null:u.first['id'] as int;
+              });
+            },
+            icon:const Icon(Icons.add_circle_outline),
+            label:Text(tr3('تعريف صنف جديد','Define new product','Définir un nouveau produit')))),
+        if(productId!=null) ...[
+          const SizedBox(height:6),
+          DropdownButtonFormField<int>(
+            value:units.any((u)=>u['id']==unitId)?unitId:null,
+            decoration:InputDecoration(labelText:t('unit')),
+            items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,
+              child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
+            onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
+        ],
         const SizedBox(height:10),
         TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'),hintText:'0')),
         const SizedBox(height:8),
