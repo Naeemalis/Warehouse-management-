@@ -4,7 +4,7 @@ import 'package:naeemsoft_wms/data/master_data_transfer.dart';
 void main() {
   test('CSV export/import preserves commas, quotes and Arabic text', () {
     final headers=['name','phone','notes'];
-    final rows=[{'name':'مورد، رئيسي','phone':'123','notes':'قال "متاح"، نعم'}];
+    final rows=[{'name':'مورد, رئيسي','phone':'123','notes':'قال "متاح", نعم'}];
     final bytes=MasterDataTransfer.encodeRows(headers,rows,csv:true);
     final decoded=MasterDataTransfer.readRows(bytes,'sample.csv');
     expect(decoded.single['name'],'مورد، رئيسي');
