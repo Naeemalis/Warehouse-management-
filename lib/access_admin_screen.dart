@@ -54,6 +54,33 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
     "الأقسام": {'en': "Departments", 'fr': "Services"},
     "الأدوار والصلاحيات": {'en': "Roles & Permissions", 'fr': "Rôles et autorisations"},
     "المؤسسة": {'en': "Organization", 'fr': "Organisation"},
+    "إنشاء التوريد": {'en': "Create receipts", 'fr': "Créer les réceptions"},
+    "إنشاء الصرف": {'en': "Create issues", 'fr': "Créer les sorties"},
+    "اعتماد المستندات": {'en': "Approve documents", 'fr': "Approuver les documents"},
+    "إدارة المرتجعات": {'en': "Manage returns", 'fr': "Gérer les retours"},
+    "عرض الموردين وكشوفهم": {'en': "View suppliers and statements", 'fr': "Voir les fournisseurs et leurs relevés"},
+    "تسجيل دفعات الموردين": {'en': "Record supplier payments", 'fr': "Enregistrer les paiements fournisseurs"},
+    "عرض العملاء وكشوفهم": {'en': "View customers and statements", 'fr': "Voir les clients et leurs relevés"},
+    "تسجيل دفعات العملاء": {'en': "Record customer payments", 'fr': "Enregistrer les paiements clients"},
+    "الجرد": {'en': "Stocktaking", 'fr': "Inventaire"},
+    "عرض التقارير": {'en': "View reports", 'fr': "Voir les rapports"},
+    "إدارة المستخدمين": {'en': "Manage users", 'fr': "Gérer les utilisateurs"},
+    "إدارة الأقسام": {'en': "Manage departments", 'fr': "Gérer les services"},
+    "إدارة الأدوار والصلاحيات": {'en': "Manage roles and permissions", 'fr': "Gérer les rôles et autorisations"},
+    "إعدادات المؤسسة": {'en': "Organization settings", 'fr': "Paramètres de l’organisation"},
+    "الاطلاع على معلومات المنافسين السرية": {'en': "View confidential competitor information", 'fr': "Consulter les informations confidentielles sur les concurrents"},
+    "التوريد": {'en': "Receiving", 'fr': "Réception"},
+    "الصرف": {'en': "Issuing", 'fr': "Sortie"},
+    "الاعتمادات": {'en': "Approvals", 'fr': "Approbations"},
+    "المرتجعات": {'en': "Returns", 'fr': "Retours"},
+    "الموردون": {'en': "Suppliers", 'fr': "Fournisseurs"},
+    "العملاء": {'en': "Customers", 'fr': "Clients"},
+    "المخزون": {'en': "Inventory", 'fr': "Stock"},
+    "التقارير": {'en': "Reports", 'fr': "Rapports"},
+    "الإدارة": {'en': "Administration", 'fr': "Administration"},
+    "الإعدادات": {'en': "Settings", 'fr': "Paramètres"},
+    "معلومات سرية": {'en': "Confidential information", 'fr': "Informations confidentielles"},
+    "اسم المؤسسة": {'en': "Organization name", 'fr': "Nom de l’organisation"},
   };
   String tr(String value) => _translations[value]?[language] ?? value;
 
@@ -319,7 +346,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
       Text(tr('اسم المؤسسة يظهر في الفواتير والسندات والتقارير.')),
       const SizedBox(height:12),
       TextField(controller:company,decoration:
-        const InputDecoration(labelText:'اسم المؤسسة')),
+        InputDecoration(labelText:tr('اسم المؤسسة'))),
       const SizedBox(height:12),
       FilledButton.icon(onPressed:()async{
         try{await db.saveCompanyName(company.text);notify(tr('تم حفظ اسم المؤسسة'));}
