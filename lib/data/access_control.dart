@@ -128,9 +128,17 @@ extension WmsAccessControl on WmsDatabase {
     return grants.isNotEmpty && grants.first['is_allowed'] == 1;
   }
 
+
+  Future<void> clearUserPermission(int userId, String permissionKey) async {
+    final db = await database;
+    await db.delete('user_permissions',
+      where: 'user_id=? AND permission_key=?',
+      whereArgs: [userId, permissionKey]);
+  }
+
   Future<int> createUser({
     required String username, required String fullName,
-    required String passwordHash, int? departmentId, int? roleId,
+    required String passwordHash, required String passwordSalt, int? departmentId, int? roleId,
   }) async {
     final login = username.trim();
     final name = fullName.trim();
@@ -140,7 +148,7 @@ extension WmsAccessControl on WmsDatabase {
     final db = await database;
     final now = DateTime.now().toIso8601String();
     return db.insert('users', {
-      'username': login, 'full_name': name, 'password_hash': passwordHash,
+      'username': login, 'full_name': name, 'password_hash': passwordHash, 'password_salt': passwordSalt,
       'department_id': departmentId, 'role_id': roleId,
       'created_at': now, 'updated_at': now,
     });
@@ -161,7 +169,7 @@ extension WmsAccessControl on WmsDatabase {
 
   Future<void> updateUser({
     required int id, required String fullName,
-    int? departmentId, int? roleId, String? passwordHash,
+    int? departmentId, int? roleId, String? passwordHash, String? passwordSalt,
   }) async {
     if (fullName.trim().isEmpty) throw ArgumentError('Full name is required');
     final values = <String, Object?>{
@@ -170,6 +178,7 @@ extension WmsAccessControl on WmsDatabase {
     };
     if (passwordHash != null && passwordHash.isNotEmpty) {
       values['password_hash'] = passwordHash;
+      values['password_salt'] = passwordSalt;
     }
     final db = await database;
     final changed = await db.update('users', values,
