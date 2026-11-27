@@ -353,10 +353,19 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     if(!mounted)return;
     if(customers.isEmpty){
       final c=TextEditingController();
+      final phone=TextEditingController();
+      final address=TextEditingController();
       final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('customerName'))),
+        title:Text(t('customer')),
+        content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+          TextField(controller:c,decoration:InputDecoration(labelText:tr3('اسم العميل','Customer name','Nom du client'))),
+          const SizedBox(height:8),
+          TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+          const SizedBox(height:8),
+          TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+        ])),
         actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
-      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
+      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim(),phone:phone.text,address:address.text);await _openIssueCashier(selectedProduct:selectedProduct);}
       return;
     }
     if(available.isEmpty){message(tr3('لا توجد أصناف لها رصيد متاح للصرف','No products have available stock','Aucun produit avec stock disponible'));return;}
