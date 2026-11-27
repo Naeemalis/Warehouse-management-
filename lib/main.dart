@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -186,6 +188,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='deliveries') showDeliveries();
               else if(v=='approvals') showApprovals();
               else if(v=='admin') showAccessAdmin();
+              else if(v=='company') showCompanyProfile();
               else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
             },
             itemBuilder: (_) => [
@@ -198,6 +201,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
               PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, Departments & Permissions','Utilisateurs, services et autorisations'))),
+              PopupMenuItem(value:'company',child:Text(tr3('بيانات المؤسسة','Organization profile','Profil de l’organisation'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
@@ -1044,10 +1048,51 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   pw.TextDirection get pdfTextDirection =>
       rtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
 
+
+  pw.Widget companyPdfHeader(Map<String, String> profile) {
+    final name = (profile['company_name'] ?? '').trim();
+    final details = <String>[
+      profile['company_phone'] ?? '',
+      profile['company_email'] ?? '',
+      [
+        profile['company_country'] ?? '',
+        profile['company_city'] ?? '',
+        profile['company_area'] ?? '',
+        profile['company_address'] ?? '',
+      ].where((v) => v.trim().isNotEmpty).join(' - '),
+      profile['company_website'] ?? '',
+      profile['company_registration'] ?? '',
+    ].where((v) => v.trim().isNotEmpty).toList();
+    pw.MemoryImage? logo;
+    final encoded = profile['company_logo_base64'] ?? '';
+    if (encoded.isNotEmpty) {
+      try { logo = pw.MemoryImage(base64Decode(encoded)); } catch (_) {}
+    }
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        if (logo != null)
+          pw.Center(child: pw.Container(
+            height: 58, width: 150,
+            margin: const pw.EdgeInsets.only(bottom: 5),
+            child: pw.Image(logo, fit: pw.BoxFit.contain),
+          )),
+        pw.Center(child: pw.Text(
+          name.isEmpty ? 'NaeemSoft WMS' : name,
+          style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20),
+        )),
+        ...details.map((line) => pw.Center(child: pw.Text(
+          line, style: const pw.TextStyle(fontSize: 8),
+          textAlign: pw.TextAlign.center,
+        ))),
+        pw.SizedBox(height: 8),
+      ],
+    );
+  }
+
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
-    final companyName=await db.companyName();
-    final documentHeading=companyName.isEmpty?'NaeemSoft WMS':companyName;
+    final companyProfile=await db.companyProfile();
     final result = await db.documentDetails(documentId);
     final doc = result['document'] as Map<String, Object?>;
     final lines = result['lines'] as List<Map<String, Object?>>;
@@ -1064,8 +1109,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text(documentHeading,
-                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              companyPdfHeader(companyProfile),
               pw.Center(child: pw.Text(
                 documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
@@ -1127,8 +1171,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     required Map<String, Object?> statement,
   }) async {
     await SragFonts.load();
-    final companyName=await db.companyName();
-    final statementHeading=companyName.isEmpty?'NaeemSoft WMS':companyName;
+    final companyProfile=await db.companyProfile();
     final party = (supplier ? statement['supplier'] : statement['customer']) as Map<String, Object?>;
     final entries = statement['entries'] as List<Map<String, Object?>>;
     final pdf = pw.Document(
@@ -1142,8 +1185,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text(statementHeading,
-                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              companyPdfHeader(companyProfile),
               pw.Center(child: pw.Text(
                 supplier
                     ? tr3('كشف حساب مورد', 'Supplier Statement', 'Relevé fournisseur')
@@ -1220,6 +1262,141 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   }
 
 
+
+
+  Future<void> showCompanyProfile() async {
+    final profile = await db.companyProfile();
+    final fields = <String, TextEditingController>{
+      'company_name': TextEditingController(text: profile['company_name']),
+      'company_phone': TextEditingController(text: profile['company_phone']),
+      'company_email': TextEditingController(text: profile['company_email']),
+      'company_country': TextEditingController(text: profile['company_country']),
+      'company_city': TextEditingController(text: profile['company_city']),
+      'company_area': TextEditingController(text: profile['company_area']),
+      'company_address': TextEditingController(text: profile['company_address']),
+      'company_website': TextEditingController(text: profile['company_website']),
+      'company_registration': TextEditingController(text: profile['company_registration']),
+    };
+    String logoBase64 = profile['company_logo_base64'] ?? '';
+    String? error;
+    String label(String ar, String en, String fr) => tr3(ar, en, fr);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setLocal) => AlertDialog(
+          title: Text(label('بيانات المؤسسة', 'Organization profile', 'Profil de l’organisation')),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (logoBase64.isNotEmpty)
+                    Container(
+                      height: 90, width: double.infinity,
+                      alignment: Alignment.center,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Image.memory(base64Decode(logoBase64), fit: BoxFit.contain),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.business, size: 48),
+                    ),
+                  Row(children: [
+                    Expanded(child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await FilePicker.platform.pickFiles(
+                          type: FileType.image, allowMultiple: false, withData: true,
+                        );
+                        if (picked == null || picked.files.isEmpty) return;
+                        final bytes = picked.files.single.bytes;
+                        if (bytes == null || bytes.isEmpty) {
+                          setLocal(() => error = label('تعذر قراءة الصورة المختارة','Could not read the selected image','Impossible de lire l’image sélectionnée'));
+                          return;
+                        }
+                        if (bytes.length > 3 * 1024 * 1024) {
+                          setLocal(() => error = label('حجم الشعار أكبر من 3 ميجابايت','Logo must be 3 MB or smaller','Le logo doit faire 3 Mo ou moins'));
+                          return;
+                        }
+                        setLocal(() { logoBase64 = base64Encode(bytes); error = null; });
+                      },
+                      icon: const Icon(Icons.image_outlined),
+                      label: Text(label('اختيار الشعار','Choose logo','Choisir le logo')),
+                    )),
+                    if (logoBase64.isNotEmpty)
+                      IconButton(
+                        tooltip: label('إزالة الشعار','Remove logo','Supprimer le logo'),
+                        onPressed: () => setLocal(() => logoBase64 = ''),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                  ]),
+                  const SizedBox(height: 10),
+                  TextField(controller: fields['company_name'], decoration: InputDecoration(
+                    labelText: label('اسم المؤسسة الرسمي *','Official organization name *','Nom officiel de l’organisation *'),
+                  )),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_phone'], keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(labelText: label('رقم الهاتف','Phone','Téléphone'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_email'], keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(labelText: label('البريد الإلكتروني','Email','E-mail'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_country'], decoration: InputDecoration(labelText: label('الدولة','Country','Pays'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_city'], decoration: InputDecoration(labelText: label('المدينة','City','Ville'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_area'], decoration: InputDecoration(labelText: label('المنطقة / الحي','Area / district','Zone / quartier'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_address'], maxLines: 2,
+                    decoration: InputDecoration(labelText: label('العنوان التفصيلي','Detailed address','Adresse détaillée'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_website'], keyboardType: TextInputType.url,
+                    decoration: InputDecoration(labelText: label('الموقع الإلكتروني','Website','Site web'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_registration'],
+                    decoration: InputDecoration(labelText: label('رقم التسجيل (اختياري)','Registration number (optional)','Numéro d’enregistrement (facultatif)'))),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(t('cancel'))),
+            FilledButton(
+              onPressed: () {
+                if ((fields['company_name']?.text.trim() ?? '').isEmpty) {
+                  setLocal(() => error = label('اسم المؤسسة مطلوب','Organization name is required','Le nom de l’organisation est obligatoire'));
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
+              child: Text(t('save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true) {
+      try {
+        final values = <String, String>{
+          for (final entry in fields.entries) entry.key: entry.value.text.trim(),
+          'company_logo_base64': logoBase64,
+        };
+        await db.saveCompanyProfile(values);
+        message(label('تم حفظ بيانات المؤسسة','Organization profile saved','Profil de l’organisation enregistré'));
+      } catch (e) {
+        message(e.toString());
+      }
+    }
+    for (final controller in fields.values) {
+      controller.dispose();
+    }
+  }
 
   Future<void> showAccessAdmin() async {
     await Navigator.push(context,MaterialPageRoute(builder:(_)=>AccessAdminScreen(language: lang)));
