@@ -235,7 +235,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
             future:db.roleHasPermission(r['id'] as int,p['permission_key'] as String),
             builder:(ctx,snapshot)=>SwitchListTile(
               dense:true,title:Text(p['label_ar'].toString()),
-              subtitle:Text(p['permission_key'].toString()),
+              subtitle:const Text('تفعيل أو إيقاف هذه الصلاحية لهذا الدور'),
               value:snapshot.data??false,
               onChanged:(v)async{
                 await db.setRolePermission(roleId:r['id'] as int,
