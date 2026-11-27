@@ -182,7 +182,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='docs') showDocuments();
               else if(v=='statement') showCustomerAccounts();
               else if(v=='supplierStatement') showSupplierAccounts();
-              else if(v=='issues') showDocuments(kind:'issue');
+              else if(v=='issues') showDocuments(kind:'issue',documentType:'standard');
+              else if(v=='sales') showDocuments(kind:'issue',documentType:'sale');
               else if(v=='parties') manageParties();
               else if(v=='deliveries') showDeliveries();
               else if(v=='approvals') showApprovals();
@@ -195,7 +196,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'docs',child:Text(tr3('الفواتير','Invoices','Factures'))),
               PopupMenuItem(value:'statement',child:Text(tr3('كشف حساب عميل والدفعات','Customer statement & payments','Relevé client et paiements'))),
               PopupMenuItem(value:'supplierStatement',child:Text(tr3('كشف حساب المورد والدفعات','Supplier statement & payments','Relevé fournisseur et paiements'))),
-              PopupMenuItem(value:'issues',child:Text(tr3('سجل المنصرف','Issue register','Registre des sorties'))),
+              PopupMenuItem(value:'issues',child:Text(tr3('سجل الصرف','Issue register','Registre des sorties'))),
+              PopupMenuItem(value:'sales',child:Text(tr3('سجل المبيعات','Sales register','Registre des ventes'))),
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
@@ -220,6 +222,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                   Expanded(child: _action(t('receive'), Icons.move_to_inbox, () => openTransaction(true))),
                   const SizedBox(width:8),
                   Expanded(child: _action(t('issue'), Icons.outbox, () => openTransaction(false))),
+                  const SizedBox(width:8),
+                  Expanded(child: _action(tr3('مبيعات','Sales','Ventes'), Icons.point_of_sale, () => _openSalesCashier())),
                 ]),
               ),
               Padding(
@@ -350,7 +354,11 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     else{await _openIssueCashier(selectedProduct:selectedProduct);}
   }
 
-  Future<void> _openIssueCashier({Map<String,Object?>? selectedProduct}) async {
+  Future<void> _openSalesCashier({Map<String,Object?>? selectedProduct}) async {
+    await _openIssueCashier(selectedProduct:selectedProduct,sales:true);
+  }
+
+  Future<void> _openIssueCashier({Map<String,Object?>? selectedProduct,bool sales=false}) async {
     final customers=await db.listParties('customers');
     final available=(await db.listProducts()).where((p)=>((p['stock_base'] as num?)?.toDouble()??0)>0).toList();
     if(!mounted)return;
@@ -368,7 +376,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
         ])),
         actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
-      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim(),phone:phone.text,address:address.text);await _openIssueCashier(selectedProduct:selectedProduct);}
+      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim(),phone:phone.text,address:address.text);await _openIssueCashier(selectedProduct:selectedProduct,sales:sales);}
       return;
     }
     if(available.isEmpty){message(tr3('لا توجد أصناف لها رصيد متاح للصرف','No products have available stock','Aucun produit avec stock disponible'));return;}
@@ -393,7 +401,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
       insetPadding:const EdgeInsets.all(10),
       child:SafeArea(child:SizedBox(width:560,height:MediaQuery.of(ctx).size.height*.92,
         child:StatefulBuilder(builder:(ctx,setLocal)=>Padding(padding:const EdgeInsets.all(10),child:Column(children:[
-          Row(children:[Expanded(child:Text(tr3('كاشير الصرف','Issue cashier','Caisse de sortie'),style:Theme.of(ctx).textTheme.titleLarge)),
+          Row(children:[Expanded(child:Text(sales?tr3('كاشير المبيعات','Sales cashier','Caisse de vente'):tr3('كاشير الصرف','Issue cashier','Caisse de sortie'),style:Theme.of(ctx).textTheme.titleLarge)),
             IconButton(onPressed:()=>Navigator.pop(ctx),icon:const Icon(Icons.close))]),
           DropdownButtonFormField<int>(value:customerId,isExpanded:true,decoration:InputDecoration(labelText:t('customer')),
             items:customers.map((c)=>DropdownMenuItem(value:c['id'] as int,child:Text(c['name'].toString()))).toList(),
@@ -477,7 +485,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           SizedBox(width:double.infinity,child:FilledButton(onPressed:basket.isEmpty?null:()async{
             try{
               final customer=customers.firstWhere((c)=>c['id']==customerId);
-              final id=await db.createDocument(kind:'issue',partyType:'customer',partyId:customerId!,
+              final id=await db.createDocument(kind:'issue',documentType:sales?'sale':'standard',partyType:'customer',partyId:customerId!,
                 partyName:customer['name'] as String,createdBy:1,lines:basket.map((e)=>Map<String,Object?>.from(e)).toList());
               await db.submitDocument(documentId:id,userId:1);
               if(ctx.mounted)Navigator.pop(ctx);await refresh();message(t('sent'));
@@ -979,7 +987,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                 final doc=pending[i];
                 return Card(child:ListTile(
                   title:Text('${doc['document_no']} · ${doc['party_name_snapshot']}'),
-                  subtitle:Text(doc['kind']=='receipt'?t('receipt')
+                  subtitle:Text(doc['document_type']=='sale'?tr3('مبيعات','Sales','Ventes'):doc['kind']=='receipt'?t('receipt')
                     :doc['kind']=='issue'?t('issue')
                     :doc['kind']=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
                     :tr3('مرتجع مورد','Supplier return','Retour fournisseur')),
@@ -1112,7 +1120,9 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
               pw.Center(child: pw.Text(
                 documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
-                    : documentKind == 'issue'
+                    : documentKind == 'issue' && doc['document_type']=='sale'
+                        ? tr3('فاتورة مبيعات', 'Sales Invoice', 'Facture de vente')
+                        : documentKind == 'issue'
                         ? tr3('سند صرف بضاعة', 'Goods Issue', 'Bon de sortie')
                         : documentKind == 'return_in'
                             ? tr3('مرتجع عميل', 'Customer Return', 'Retour client')
@@ -1524,8 +1534,8 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     for(final c in quantities.values){c.dispose();}
   }
 
-  Future<void> showDocuments({String? kind}) async {
-    final docs=await db.listDocuments(kind:kind);
+  Future<void> showDocuments({String? kind,String? documentType}) async {
+    final docs=await db.listDocuments(kind:kind,documentType:documentType);
     if(!mounted)return;
     await showModalBottomSheet<void>(
       context:context,isScrollControlled:true,
@@ -1533,18 +1543,19 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
         child:SafeArea(child:Padding(padding:const EdgeInsets.all(14),child:SizedBox(
           height:MediaQuery.of(ctx).size.height*.78,
           child:Column(children:[
-            Text(kind=='issue'?tr3('سجل المنصرف','Issue register','Registre des sorties'):tr3('الفواتير والمستندات','Invoices and documents','Factures et documents'),style:Theme.of(ctx).textTheme.titleLarge),
+            Text(documentType=='sale'?tr3('سجل المبيعات','Sales register','Registre des ventes'):kind=='issue'?tr3('سجل الصرف','Issue register','Registre des sorties'):tr3('الفواتير والمستندات','Invoices and documents','Factures et documents'),style:Theme.of(ctx).textTheme.titleLarge),
             const SizedBox(height:10),
             Expanded(child:docs.isEmpty?Center(child:Text(tr3('لا توجد فواتير','No documents','Aucun document'))):ListView.builder(
               itemCount:docs.length,itemBuilder:(ctx,i){
                 final d=docs[i];
                 final kind=d['kind'];
-                final kindLabel=kind=='receipt'?tr3('استلام','Receipt','Réception')
+                final kindLabel=d['document_type']=='sale'?tr3('مبيعات','Sale','Vente')
+                  :kind=='receipt'?tr3('استلام','Receipt','Réception')
                   :kind=='issue'?tr3('صرف','Issue','Sortie')
                   :kind=='return_in'?tr3('مرتجع عميل','Customer return','Retour client')
                   :tr3('مرتجع مورد','Supplier return','Retour fournisseur');
                 return Card(child:ListTile(
-                  leading:Icon(kind=='receipt'?Icons.move_to_inbox:kind=='issue'?Icons.outbox:Icons.assignment_return),
+                  leading:Icon(d['document_type']=='sale'?Icons.point_of_sale:kind=='receipt'?Icons.move_to_inbox:kind=='issue'?Icons.outbox:Icons.assignment_return),
                   title:Text('${d['document_no']} · ${d['party_name_snapshot']??''}'),
                   subtitle:Text('${kindLabel} · ${d['status']} · ${money(d['total_minor'])}'),
                   trailing:const Icon(Icons.chevron_right),
@@ -1566,6 +1577,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
       content:SizedBox(width:420,child:SingleChildScrollView(child:Column(
         crossAxisAlignment:CrossAxisAlignment.start,mainAxisSize:MainAxisSize.min,children:[
           Text('${doc['party_name_snapshot']??''}'),
+          Text(doc['document_type']=='sale'?tr3('نوع المستند: مبيعات','Document type: Sale','Type de document : vente'):doc['kind']=='issue'?tr3('نوع المستند: صرف','Document type: Issue','Type de document : sortie'):doc['kind']=='receipt'?tr3('نوع المستند: استلام','Document type: Receipt','Type de document : réception'):tr3('نوع المستند: مرتجع','Document type: Return','Type de document : retour')),
           Text('${doc['status']} · ${doc['created_at']}'),
           const Divider(),
           ...lines.map((l)=>ListTile(
@@ -1639,7 +1651,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                   final isReturn=e['entry_type']=='return_in';
                   final credit=payment||isReturn;
                   final label=payment?tr3('دفعة','Payment','Paiement')
-                    :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):tr3('فاتورة صرف','Issue invoice','Facture de sortie'));
+                    :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):(e['document_type']=='sale'?tr3('فاتورة مبيعات','Sales invoice','Facture de vente'):tr3('فاتورة صرف','Issue invoice','Facture de sortie')));
                   return ListTile(
                     dense:true,leading:Icon(credit?Icons.receipt_long:Icons.payments),
                     title:Text('${e['document_no']} · $label'),

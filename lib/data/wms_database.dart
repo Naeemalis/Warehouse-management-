@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 9,
+      version: 10,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -96,6 +96,9 @@ class WmsDatabase {
         if (oldVersion < 8) {
           await _createAccessControlSchema(db);
         }
+        if (oldVersion < 10) {
+          await db.execute("ALTER TABLE documents ADD COLUMN document_type TEXT NOT NULL DEFAULT 'standard'");
+        }
         if (oldVersion == 8) {
           await db.execute("ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''");
         }
@@ -175,6 +178,7 @@ class WmsDatabase {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       document_no TEXT NOT NULL UNIQUE,
       kind TEXT NOT NULL CHECK(kind IN ('receipt','issue','transfer','return_in','return_out','adjustment')),
+      document_type TEXT NOT NULL DEFAULT 'standard',
       status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending_approval','approved','rejected','cancelled')),
       party_type TEXT CHECK(party_type IN ('supplier','customer','department','warehouse')),
       party_id INTEGER, party_name_snapshot TEXT, notes TEXT, reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT,
@@ -676,7 +680,7 @@ class WmsDatabase {
       }
       await txn.update('documents', {
         'status': 'approved', 'approved_by': approverId, 'approved_at': now,
-        'delivery_status': kind == 'issue' ? 'awaiting_delivery' : 'not_ready',
+        'delivery_status': kind == 'issue' && doc['document_type'] != 'sale' ? 'awaiting_delivery' : 'not_ready',
       }, where: 'id = ?', whereArgs: [documentId]);
       await txn.insert('approval_history', {
         'document_id': documentId, 'action': 'approved', 'actor_id': approverId,
@@ -691,7 +695,7 @@ class WmsDatabase {
       final rows = await txn.query('documents', where: 'id = ?', whereArgs: [documentId], limit: 1);
       if (rows.isEmpty) throw StateError('Document not found');
       final doc = rows.first;
-      if (doc['kind'] != 'issue' || doc['status'] != 'approved') throw StateError('Only approved issue documents can be delivered');
+      if (doc['kind'] != 'issue' || doc['document_type'] == 'sale' || doc['status'] != 'approved') throw StateError('Only approved issue documents can be delivered');
       if (doc['delivery_status'] == 'delivered') throw StateError('Already delivered');
       await txn.update('documents', {
         'delivery_status': 'delivered', 'delivered_by': userId,
@@ -798,6 +802,7 @@ extension WmsCatalogOperations on WmsDatabase {
 
   Future<int> createDocument({
     required String kind,
+    String documentType = 'standard',
     required String partyType,
     required int partyId,
     required String partyName,
@@ -805,14 +810,16 @@ extension WmsCatalogOperations on WmsDatabase {
     required List<Map<String, Object?>> lines,
   }) async {
     if (kind != 'receipt' && kind != 'issue') throw ArgumentError('Unsupported document kind');
+    if (documentType != 'standard' && documentType != 'sale') throw ArgumentError('Unsupported document type');
+    if (documentType == 'sale' && (kind != 'issue' || partyType != 'customer')) throw ArgumentError('Sales documents must be customer issues');
     if (lines.isEmpty) throw ArgumentError('Document must contain at least one line');
     final db = await database;
     return db.transaction((txn) async {
       final now = DateTime.now().toIso8601String();
       final stamp = DateTime.now().microsecondsSinceEpoch;
       final docId = await txn.insert('documents', {
-        'document_no': '${kind == 'receipt' ? 'RCV' : 'ISS'}-$stamp',
-        'kind': kind, 'status': 'draft', 'party_type': partyType,
+        'document_no': '${kind == 'receipt' ? 'RCV' : (documentType == 'sale' ? 'SAL' : 'ISS')}-$stamp',
+        'kind': kind, 'document_type': documentType, 'status': 'draft', 'party_type': partyType,
         'party_id': partyId, 'party_name_snapshot': partyName,
         'created_by': createdBy, 'created_at': now,
       });
@@ -960,7 +967,7 @@ extension WmsDeliveryOperations on WmsDatabase {
   Future<List<Map<String, Object?>>> awaitingDeliveryDocuments() async {
     final db = await database;
     return db.query('documents',
-      where: "kind='issue' AND status='approved' AND delivery_status='awaiting_delivery'",
+      where: "kind='issue' AND document_type='standard' AND status='approved' AND delivery_status='awaiting_delivery'",
       orderBy: 'approved_at ASC');
   }
 }
@@ -996,11 +1003,12 @@ extension WmsProductMaintenance on WmsDatabase {
 
 
 extension WmsFinanceAndHistory on WmsDatabase {
-  Future<List<Map<String, Object?>>> listDocuments({String? kind, int? partyId}) async {
+  Future<List<Map<String, Object?>>> listDocuments({String? kind, String? documentType, int? partyId}) async {
     final db = await database;
     final clauses = <String>[];
     final args = <Object?>[];
     if (kind != null) { clauses.add('d.kind=?'); args.add(kind); }
+    if (documentType != null) { clauses.add('d.document_type=?'); args.add(documentType); }
     if (partyId != null) { clauses.add('d.party_id=?'); args.add(partyId); }
     return db.rawQuery('''
       SELECT d.*,
@@ -1141,7 +1149,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     if (customerRows.isEmpty) throw StateError('Customer not found');
     final docs = await db.rawQuery("""
       SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
-        d.party_name_snapshot,
+        d.party_name_snapshot,d.document_type,
         CASE WHEN d.kind='issue' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
         CASE WHEN d.kind='return_in' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
         d.kind AS entry_type
