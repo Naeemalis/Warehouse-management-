@@ -576,12 +576,14 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           alignment:AlignmentDirectional.centerStart,
           child:TextButton.icon(
             onPressed:() async {
+              final previousIds=productRows.map((p)=>p['id']).toSet();
               await addProduct();
               final refreshed=await db.listProducts();
-              if(refreshed.isEmpty)return;
-              refreshed.sort((a,b)=>(a['id'] as int).compareTo(b['id'] as int));
-              final newest=refreshed.last;
-              final v=newest['id'] as int;
+              final newlyCreated=refreshed.where((p)=>!previousIds.contains(p['id'])).toList();
+              if(newlyCreated.isEmpty)return;
+              newlyCreated.sort((a,b)=>(a['id'] as int).compareTo(b['id'] as int));
+              final createdProduct=newlyCreated.last;
+              final v=createdProduct['id'] as int;
               final u=await db.listPurchaseUnits(v);
               setLocal(() {
                 productRows=refreshed; productId=v; units=u;
