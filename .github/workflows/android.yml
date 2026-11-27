@@ -3,9 +3,9 @@ name: Flutter Android CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier, feature/multilingual-reports-printing, feature/return-documents]
+    branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier, feature/multilingual-reports-printing, feature/return-documents, feature/master-data-import-export]
   pull_request:
-    branches: [main, feature/wms-foundation]
+    branches: [main, feature/wms-foundation, feature/return-documents]
 
 jobs:
   validate-and-build:
@@ -18,12 +18,73 @@ jobs:
           cache: true
       - name: Generate Android platform project
         run: flutter create . --platforms=android --project-name naeemsoft_wms --no-pub
+      - name: Set Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = [Path('android/app/build.gradle.kts'), Path('android/app/build.gradle')]
+          for path in candidates:
+              if not path.exists():
+                  continue
+              text = path.read_text()
+              updated = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+              updated = updated.replace('compileSdk flutter.compileSdkVersion', 'compileSdk 36')
+              if updated == text and 'compileSdk = 36' not in text and 'compileSdk 36' not in text:
+                  raise SystemExit(f'Could not find compileSdk declaration in {path}')
+              path.write_text(updated)
+              print(f'Configured compileSdk 36 in {path}')
+              break
+          else:
+              raise SystemExit('Android app Gradle file not found')
+          PY
       - name: Apply NaeemSoft WMS app name and launcher icon
         run: python3 tooling/generate_android_branding.py
       - name: Remove generated sample widget test
         run: rm -f test/widget_test.dart
       - name: Install dependencies
         run: flutter pub get
+      - name: Align Android plugin compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+          from urllib.parse import unquote, urlparse
+
+          config_path = Path('.dart_tool/package_config.json')
+          config = json.loads(config_path.read_text())
+          file_picker_found = False
+          for package in config.get('packages', []):
+              if package.get('name') != 'file_picker':
+                  continue
+              root_uri = package.get('rootUri', '')
+              parsed = urlparse(root_uri)
+              if parsed.scheme == 'file':
+                  package_root = Path(unquote(parsed.path))
+              else:
+                  package_root = (config_path.parent / unquote(root_uri)).resolve()
+
+              gradle = package_root / 'android/build.gradle'
+              if not gradle.exists():
+                  gradle = package_root / 'android/build.gradle.kts'
+              if not gradle.exists():
+                  raise SystemExit(f'file_picker Gradle file not found under {package_root}')
+
+              source = gradle.read_text()
+              pattern = r'(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)(?:flutter\.compileSdkVersion|\d+)\b'
+              updated, count = re.subn(pattern, r'\g<1>36', source)
+              if count == 0:
+                  raise SystemExit(
+                      f'Could not find a supported compileSdk declaration in {gradle}. '
+                      'Build file content: ' + source[:4000]
+                  )
+              gradle.write_text(updated)
+              file_picker_found = True
+              print(f'Updated {count} compileSdk declaration(s) in {gradle}')
+
+          if not file_picker_found:
+              raise SystemExit('file_picker package was not found in package_config.json')
+          PY
       - name: Analyze Dart code
         run: flutter analyze --no-fatal-infos
       - name: Run tests

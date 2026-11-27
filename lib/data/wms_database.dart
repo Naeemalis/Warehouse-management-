@@ -12,7 +12,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 7,
+      version: 9,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -59,8 +59,9 @@ class WmsDatabase {
             var remaining=(m['quantity_base'] as num).toDouble();
             final batches=await db.rawQuery("""
               SELECT b.*,b.received_quantity_base-COALESCE((
-                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+                SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base WHEN sm.direction='IN' AND sd.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
                 JOIN stock_movements sm ON sm.id=a.stock_movement_id
+                JOIN documents sd ON sd.id=sm.document_id
                 WHERE a.batch_id=b.id
               ),0) available_base
               FROM stock_batches b WHERE b.product_id=? ORDER BY b.created_at,b.id
@@ -91,6 +92,12 @@ class WmsDatabase {
             created_by INTEGER, created_at TEXT NOT NULL
           )''');
           await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
+        }
+        if (oldVersion < 8) {
+          await _createAccessControlSchema(db);
+        }
+        if (oldVersion == 8) {
+          await db.execute("ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''");
         }
         if (oldVersion < 7) {
           await db.execute("ALTER TABLE documents ADD COLUMN reference_document_id INTEGER REFERENCES documents(id) ON DELETE RESTRICT");
@@ -230,6 +237,7 @@ class WmsDatabase {
     )''');
     await db.execute('CREATE INDEX idx_supplier_payments_supplier_date ON supplier_payments(supplier_id, payment_date)');
     await db.execute('CREATE TABLE app_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL)');
+    await _createAccessControlSchema(db);
     await db.execute('CREATE INDEX idx_product_units_product ON product_units(product_id)');
     await db.execute('CREATE UNIQUE INDEX idx_product_single_purchase_unit ON product_units(product_id) WHERE is_purchase_unit=1');
     await db.execute('CREATE INDEX idx_documents_status ON documents(status, kind)');
@@ -238,6 +246,79 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
+  }
+
+  Future<void> _createAccessControlSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS departments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      description TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS roles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      description TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS permissions (
+      permission_key TEXT PRIMARY KEY,
+      label_ar TEXT NOT NULL,
+      module TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+      full_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL DEFAULT '',
+      department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+      role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL,
+      is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS role_permissions (
+      role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      permission_key TEXT NOT NULL REFERENCES permissions(permission_key) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(role_id, permission_key)
+    )''');
+    await db.execute('''CREATE TABLE IF NOT EXISTS user_permissions (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission_key TEXT NOT NULL REFERENCES permissions(permission_key) ON DELETE CASCADE,
+      is_allowed INTEGER NOT NULL CHECK(is_allowed IN (0,1)),
+      granted_by INTEGER,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, permission_key)
+    )''');
+    const permissions = <Map<String,String>>[
+      {'permission_key':'receipt.create','label_ar':'إنشاء التوريد','module':'التوريد'},
+      {'permission_key':'issue.create','label_ar':'إنشاء الصرف','module':'الصرف'},
+      {'permission_key':'document.approve','label_ar':'اعتماد المستندات','module':'الاعتمادات'},
+      {'permission_key':'returns.manage','label_ar':'إدارة المرتجعات','module':'المرتجعات'},
+      {'permission_key':'supplier.view','label_ar':'عرض الموردين وكشوفهم','module':'الموردون'},
+      {'permission_key':'supplier.payment','label_ar':'تسجيل دفعات الموردين','module':'الموردون'},
+      {'permission_key':'customer.view','label_ar':'عرض العملاء وكشوفهم','module':'العملاء'},
+      {'permission_key':'customer.payment','label_ar':'تسجيل دفعات العملاء','module':'العملاء'},
+      {'permission_key':'stock.count','label_ar':'الجرد','module':'المخزون'},
+      {'permission_key':'reports.view','label_ar':'عرض التقارير','module':'التقارير'},
+      {'permission_key':'users.manage','label_ar':'إدارة المستخدمين','module':'الإدارة'},
+      {'permission_key':'departments.manage','label_ar':'إدارة الأقسام','module':'الإدارة'},
+      {'permission_key':'roles.manage','label_ar':'إدارة الأدوار والصلاحيات','module':'الإدارة'},
+      {'permission_key':'settings.manage','label_ar':'إعدادات المؤسسة','module':'الإعدادات'},
+      {'permission_key':'competitor_confidential_view','label_ar':'الاطلاع على معلومات المنافسين السرية','module':'معلومات سرية'},
+    ];
+    for (final permission in permissions) {
+      await db.insert('permissions', permission,
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await db.insert('app_settings', {
+      'setting_key':'company_name','setting_value':''
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<void> _createExpiryTraceabilitySchema(DatabaseExecutor db) async {
@@ -289,9 +370,10 @@ class WmsDatabase {
   Future<double> _batchAvailableBase(DatabaseExecutor txn, int batchId) async {
     final rows = await txn.rawQuery("""
       SELECT b.received_quantity_base-COALESCE((
-        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END)
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base WHEN m.direction='IN' AND d.kind='return_in' THEN -a.quantity_base ELSE 0 END)
         FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
+        JOIN documents d ON d.id=m.document_id
         WHERE a.batch_id=b.id
       ),0) AS available_base
       FROM stock_batches b WHERE b.id=?
@@ -565,8 +647,9 @@ class WmsDatabase {
           final today=DateTime.now().toIso8601String().substring(0,10);
           final batches=await txn.rawQuery("""
             SELECT b.*,b.received_quantity_base-COALESCE((
-              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base WHEN sm.direction='IN' AND sd.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
               JOIN stock_movements sm ON sm.id=a.stock_movement_id
+              JOIN documents sd ON sd.id=sm.document_id
               WHERE a.batch_id=b.id
             ),0) available_base
             FROM stock_batches b
@@ -630,8 +713,9 @@ extension WmsCatalogOperations on WmsDatabase {
         (SELECT MIN(b.expiry_date) FROM stock_batches b
           WHERE b.product_id=p.id AND b.expiry_date IS NOT NULL
           AND b.received_quantity_base-COALESCE((
-            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base WHEN om.direction='IN' AND od.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
             JOIN stock_movements om ON om.id=a.stock_movement_id
+            JOIN documents od ON od.id=om.document_id
             WHERE a.batch_id=b.id
           ),0)>0) AS nearest_expiry_date,
         COALESCE(
@@ -703,11 +787,11 @@ extension WmsCatalogOperations on WmsDatabase {
     return db.query(table, where: 'is_active=1', orderBy: 'name COLLATE NOCASE');
   }
 
-  Future<int> saveParty({required bool supplier, required String name, String? phone}) async {
+  Future<int> saveParty({required bool supplier, required String name, String? phone, String? address, String? notes}) async {
     if (name.trim().isEmpty) throw ArgumentError('Name is required');
     final db = await database;
     return db.insert(supplier ? 'suppliers' : 'customers', {
-      'name': name.trim(), 'phone': phone,
+      'name': name.trim(), 'phone': phone?.trim(), 'address': address?.trim(), 'notes': notes?.trim(),
       'created_at': DateTime.now().toIso8601String(),
     });
   }
@@ -845,8 +929,9 @@ extension WmsStockTraceability on WmsDatabase {
     final db=await database;
     return db.rawQuery("""
       SELECT b.*,b.received_quantity_base-COALESCE((
-        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base WHEN m.direction='IN' AND d.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
+        JOIN documents d ON d.id=m.document_id
         WHERE a.batch_id=b.id
       ),0) remaining_quantity_base
       FROM stock_batches b WHERE b.product_id=?
@@ -1016,8 +1101,8 @@ extension WmsFinanceAndHistory on WmsDatabase {
     final docs = await db.rawQuery("""
       SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
         d.party_name_snapshot,
-        CASE WHEN d.kind='receipt' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
-        CASE WHEN d.kind='return_out' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
+        CASE WHEN d.kind='return_out' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
+        CASE WHEN d.kind='receipt' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
         d.kind AS entry_type
       FROM documents d JOIN document_lines l ON l.document_id=d.id
       WHERE d.kind IN ('receipt','return_out') AND d.status='approved'
@@ -1027,7 +1112,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     final payments = await db.rawQuery("""
       SELECT id, 'PAY-'||id AS document_no, payment_date AS entry_date,
         'recorded' AS status, '' AS party_name_snapshot,
-        0 AS debit_minor, amount_minor AS credit_minor,
+        amount_minor AS debit_minor, 0 AS credit_minor,
         'payment' AS entry_type, payment_method, reference_no, notes
       FROM supplier_payments WHERE supplier_id=?
     """, [supplierId]);
@@ -1036,8 +1121,8 @@ extension WmsFinanceAndHistory on WmsDatabase {
     var balance = 0;
     final ledger = <Map<String,Object?>>[];
     for (final entry in entries) {
-      balance += (entry['debit_minor'] as num).round();
-      balance -= (entry['credit_minor'] as num).round();
+      balance += (entry['credit_minor'] as num).round();
+      balance -= (entry['debit_minor'] as num).round();
       ledger.add({...entry, 'balance_minor':balance});
     }
     return {
@@ -1092,7 +1177,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
   }
 
   Future<void> updateParty({
-    required String table, required int id, required String name, String? phone,
+    required String table, required int id, required String name, String? phone, String? address, String? notes,
   }) async {
     if (table!='customers' && table!='suppliers') throw ArgumentError('Unsupported party table');
     if (name.trim().isEmpty) throw ArgumentError('Name is required');
@@ -1100,11 +1185,11 @@ extension WmsFinanceAndHistory on WmsDatabase {
     await db.transaction((txn) async {
       final rows=await txn.query(table,where:'id=?',whereArgs:[id],limit:1);
       if(rows.isEmpty) throw StateError('Record not found');
-      await txn.update(table,{'name':name.trim(),'phone':phone?.trim()},
+      await txn.update(table,{'name':name.trim(),'phone':phone?.trim(),'address':address?.trim(),'notes':notes?.trim()},
         where:'id=?',whereArgs:[id]);
       await txn.insert('audit_log',{
         'entity_type':table.substring(0,table.length-1),'entity_id':id,
-        'action':'updated','actor_id':1,'details':'Name or phone updated',
+        'action':'updated','actor_id':1,'details':'Name, phone, address or notes updated',
         'created_at':DateTime.now().toIso8601String(),
       });
     });
@@ -1131,3 +1216,49 @@ extension WmsFinanceAndHistory on WmsDatabase {
     });
   }
 }
+
+extension WmsCompanyProfile on WmsDatabase {
+  Future<Map<String, String>> companyProfile() async {
+    final db = await database;
+    final rows = await db.query('app_settings');
+    final values = <String, String>{};
+    for (final row in rows) {
+      values[row['setting_key'] as String] = row['setting_value'] as String;
+    }
+    return {
+      'company_name': values['company_name'] ?? '',
+      'company_phone': values['company_phone'] ?? '',
+      'company_email': values['company_email'] ?? '',
+      'company_country': values['company_country'] ?? '',
+      'company_city': values['company_city'] ?? '',
+      'company_area': values['company_area'] ?? '',
+      'company_address': values['company_address'] ?? '',
+      'company_website': values['company_website'] ?? '',
+      'company_registration': values['company_registration'] ?? '',
+      'company_logo_base64': values['company_logo_base64'] ?? '',
+    };
+  }
+
+  Future<void> saveCompanyProfile(Map<String, String> profile) async {
+    final name = (profile['company_name'] ?? '').trim();
+    if (name.isEmpty) throw ArgumentError('Company name is required');
+    const allowed = {
+      'company_name', 'company_phone', 'company_email', 'company_country',
+      'company_city', 'company_area', 'company_address', 'company_website',
+      'company_registration', 'company_logo_base64',
+    };
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final entry in profile.entries) {
+        if (!allowed.contains(entry.key)) continue;
+        await txn.insert(
+          'app_settings',
+          {'setting_key': entry.key, 'setting_value': entry.value.trim()},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+}
+

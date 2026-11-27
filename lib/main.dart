@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -8,6 +10,9 @@ import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
+import 'access_admin_screen.dart';
+import 'data/master_data_import.dart';
+import 'data/master_data_transfer.dart';
 import 'domain/unit_conversion.dart';
 
 void main() async {
@@ -181,6 +186,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='parties') manageParties();
               else if(v=='deliveries') showDeliveries();
               else if(v=='approvals') showApprovals();
+              else if(v=='admin') showAccessAdmin();
+              else if(v=='company') showCompanyProfile();
               else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
             },
             itemBuilder: (_) => [
@@ -192,6 +199,8 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
+              PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, Departments & Permissions','Utilisateurs, services et autorisations'))),
+              PopupMenuItem(value:'company',child:Text(tr3('بيانات المؤسسة','Organization profile','Profil de l’organisation'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
@@ -217,7 +226,16 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                 padding: const EdgeInsets.fromLTRB(16,14,16,8),
                 child: Row(children: [
                   Expanded(child: Text(t('gallery'), style: Theme.of(context).textTheme.titleLarge)),
-                  FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label: Text(t('add'))),
+                  PopupMenuButton<String>(
+  tooltip:tr3('استيراد وتصدير الأصناف','Import / export products','Importer / exporter les produits'),
+  onSelected:(v){if(v=='import')importMasterData('products');if(v=='xlsx')exportMasterData('products');if(v=='csv')exportMasterData('products',csv:true);},
+  itemBuilder:(_)=>[
+    PopupMenuItem(value:'import',child:Text(tr3('استيراد ملف','Import file','Importer un fichier'))),
+    PopupMenuItem(value:'xlsx',child:Text(tr3('تصدير Excel','Export Excel','Exporter Excel'))),
+    PopupMenuItem(value:'csv',child:Text(tr3('تصدير CSV','Export CSV','Exporter CSV'))),
+  ],
+),
+FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label: Text(t('add'))),
                 ]),
               ),
               Expanded(child: products.isEmpty
@@ -338,10 +356,19 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     if(!mounted)return;
     if(customers.isEmpty){
       final c=TextEditingController();
+      final phone=TextEditingController();
+      final address=TextEditingController();
       final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
-        title:Text(t('customer')),content:TextField(controller:c,decoration:InputDecoration(labelText:t('customerName'))),
+        title:Text(t('customer')),
+        content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+          TextField(controller:c,decoration:InputDecoration(labelText:tr3('اسم العميل','Customer name','Nom du client'))),
+          const SizedBox(height:8),
+          TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+          const SizedBox(height:8),
+          TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+        ])),
         actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(x,true),child:Text(t('save')))]));
-      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim());await _openIssueCashier(selectedProduct:selectedProduct);}
+      if(ok==true&&c.text.trim().isNotEmpty){await db.saveParty(supplier:false,name:c.text.trim(),phone:phone.text,address:address.text);await _openIssueCashier(selectedProduct:selectedProduct);}
       return;
     }
     if(available.isEmpty){message(tr3('لا توجد أصناف لها رصيد متاح للصرف','No products have available stock','Aucun produit avec stock disponible'));return;}
@@ -739,11 +766,33 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               },
             ),
             const SizedBox(height:8),
+            Row(children:[
+              Expanded(child:OutlinedButton.icon(
+                onPressed:() async {
+                  await importMasterData(kind);
+                  final refreshed=await db.listParties(kind);
+                  setSheet(()=>rows=refreshed);
+                },
+                icon:const Icon(Icons.file_upload_outlined),
+                label:Text(tr3('استيراد','Import','Importer')),
+              )),
+              const SizedBox(width:8),
+              PopupMenuButton<String>(
+                tooltip:tr3('تصدير البيانات','Export data','Exporter les données'),
+                onSelected:(v)=>exportMasterData(kind,csv:v=='csv'),
+                itemBuilder:(_)=>[
+                  PopupMenuItem(value:'xlsx',child:Text(tr3('تصدير Excel','Export Excel','Exporter Excel'))),
+                  PopupMenuItem(value:'csv',child:Text(tr3('تصدير CSV','Export CSV','Exporter CSV'))),
+                ],
+                icon:const Icon(Icons.file_download_outlined),
+              ),
+            ]),
+            const SizedBox(height:8),
             Expanded(child:rows.isEmpty?Center(child:Text(tr3('لا توجد بيانات','No records','Aucune donnée'))):ListView(
               children:rows.map((p)=>ListTile(
                 leading:const Icon(Icons.person_outline),
                 title:Text('${p['name']}'),
-                subtitle:Text('${p['phone']??''}'),
+                subtitle:Text([p['phone'],p['address']].where((v)=>v!=null&&v.toString().trim().isNotEmpty).join(' · ')),
                 trailing:PopupMenuButton<String>(
                   onSelected:(action) async {
                     if(action=='edit'){await editParty(kind,p);final refreshed=await db.listParties(kind);setSheet(()=>rows=refreshed);}
@@ -765,19 +814,25 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               onPressed:() async {
                 final name=TextEditingController();
                 final phone=TextEditingController();
+                final address=TextEditingController();
+                final notes=TextEditingController();
                 final ok=await showDialog<bool>(context:ctx,builder:(d)=>AlertDialog(
                   title:Text(kind=='suppliers'?t('supplier'):t('customer')),
-                  content:Column(mainAxisSize:MainAxisSize.min,children:[
-                    TextField(controller:name,decoration:InputDecoration(labelText:t(kind=='suppliers'?'supplierName':'customerName'))),
+                  content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+                    TextField(controller:name,decoration:InputDecoration(labelText:kind=='suppliers'?tr3('اسم المورد / اسم المؤسسة','Supplier / company name','Fournisseur / nom de l’entreprise'):tr3('اسم العميل الكامل','Customer full name','Nom complet du client'))),
                     const SizedBox(height:8),
-                    TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
-                  ]),
+                    TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+                    const SizedBox(height:8),
+                    TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+                    const SizedBox(height:8),
+                    TextField(controller:notes,maxLines:2,decoration:InputDecoration(labelText:tr3('ملاحظات (اختياري)','Notes (optional)','Notes (facultatif)'))),
+                  ])),
                   actions:[
                     TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),
                     FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save'))),
                   ]));
                 if(ok==true&&name.text.trim().isNotEmpty){
-                  await db.saveParty(supplier:kind=='suppliers',name:name.text,phone:phone.text);
+                  await db.saveParty(supplier:kind=='suppliers',name:name.text,phone:phone.text,address:address.text,notes:notes.text);
                   final r=await db.listParties(kind);
                   setSheet(() { rows=r; });
                 }
@@ -787,6 +842,72 @@ class _WarehouseHomeState extends State<WarehouseHome> {
         ))),
       )),
     );
+  }
+
+
+  Future<void> importMasterData(String kind) async {
+    try {
+      final picked=await MasterDataTransfer.pickImportFile();
+      if(picked==null)return;
+      final rows=MasterDataTransfer.readRows(picked.bytes,picked.name);
+      if(rows.isEmpty){message(tr3('الملف لا يحتوي على سجلات','The file contains no records','Le fichier ne contient aucun enregistrement'));return;}
+      final preview=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
+        title:Text(tr3('معاينة الاستيراد','Import preview','Aperçu de l’importation')),
+        content:SizedBox(width:420,height:260,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+          Text(tr3('عدد السجلات: '+rows.length.toString(),'Records: '+rows.length.toString(),'Enregistrements : '+rows.length.toString())),
+          const SizedBox(height:8),
+          Text(tr3('سيتم تحديث السجلات المطابقة وإضافة السجلات الجديدة. لن تتغير أرصدة الحسابات أو حركات المخزون.','Matching records will be updated and new records added. Account balances and stock movements will not change.','Les enregistrements correspondants seront mis à jour et les soldes et mouvements de stock resteront inchangés.'),style:Theme.of(d).textTheme.bodySmall),
+          const Divider(),
+          Expanded(child:ListView.builder(itemCount:rows.length<8?rows.length:8,itemBuilder:(_,i)=>ListTile(dense:true,leading:Text((i+1).toString()),title:Text(rows[i]['name']??rows[i]['code']??'—',maxLines:1,overflow:TextOverflow.ellipsis),subtitle:Text(rows[i]['phone']??rows[i]['base_unit_name']??'')))),
+        ])),
+        actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(tr3('اعتماد الاستيراد','Import','Importer')))],
+      ));
+      if(preview!=true)return;
+      final result=kind=='products'?await db.importProducts(rows):await db.importParties(table:kind,rows:rows);
+      if(kind=='products')await refresh();
+      final inserted=result['inserted']??0,updated=result['updated']??0,skipped=result['skipped']??0;
+      final errors=(result['errors'] as List?)??[];
+      message(tr3('اكتمل الاستيراد: أضيف '+inserted.toString()+'، حُدّث '+updated.toString()+'، تم تخطي '+skipped.toString(),'Import complete: '+inserted.toString()+' added, '+updated.toString()+' updated, '+skipped.toString()+' skipped','Importation terminée : '+inserted.toString()+' ajoutés, '+updated.toString()+' mis à jour, '+skipped.toString()+' ignorés'));
+      if(errors.isNotEmpty&&mounted){
+        await showDialog<void>(context:context,builder:(d)=>AlertDialog(
+          title:Text(tr3('ملاحظات الاستيراد','Import notes','Notes d’importation')),
+          content:SizedBox(width:420,height:260,child:ListView(children:errors.take(40).map((e)=>Text(e.toString())).toList())),
+          actions:[TextButton(onPressed:()=>Navigator.pop(d),child:Text(t('confirm')))],
+        ));
+      }
+    }catch(e){message(tr3('تعذر استيراد الملف: '+e.toString(),'Could not import file: '+e.toString(),'Impossible d’importer le fichier : '+e.toString()));}
+  }
+
+  Future<void> exportMasterData(String kind,{bool csv=false}) async {
+    try{
+      final headers=<String>[];
+      final rows=<Map<String,String>>[];
+      if(kind=='suppliers'||kind=='customers'){
+        headers.addAll(['name','phone','address','notes']);
+        final records=await db.listParties(kind);
+        for(final r in records){rows.add({'name':(r['name']??'').toString(),'phone':(r['phone']??'').toString(),'address':(r['address']??'').toString(),'notes':(r['notes']??'').toString()});}
+      }else{
+        headers.addAll(['code','name','category','base_unit_name','tracking_mode','base_sale_price','supply_sale_price','unit_definitions']);
+        final records=await db.listProducts();
+        for(final p in records){
+          final units=await db.listUnits(p['id'] as int);
+          final baseName=p['base_unit_name'].toString();
+          final base=units.where((u)=>u['unit_name']==baseName).toList();
+          final purchase=units.where((u)=>(u['is_purchase_unit'] as num? ?? 0)==1).toList();
+          final nested=units.where((u)=>u['unit_name']!=baseName).toList()..sort((a,b)=>(b['factor_to_base'] as num).compareTo(a['factor_to_base'] as num));
+          final definitions=<String>[];
+          for(var i=0;i<nested.length;i++){
+            final current=(nested[i]['factor_to_base'] as num).toDouble();
+            final next=i+1<nested.length?(nested[i+1]['factor_to_base'] as num).toDouble():1.0;
+            definitions.add(nested[i]['unit_name'].toString()+'='+(current/next).toString());
+          }
+          rows.add({'code':(p['code']??'').toString(),'name':(p['name']??'').toString(),'category':(p['category']??'').toString(),'base_unit_name':baseName,'tracking_mode':(p['tracking_mode']??'count').toString(),'base_sale_price':base.isEmpty?'0':(((base.first['sale_price_minor'] as num?)??0)/100).toStringAsFixed(2),'supply_sale_price':purchase.isEmpty?'0':(((purchase.first['sale_price_minor'] as num?)??0)/100).toStringAsFixed(2),'unit_definitions':definitions.join(',')});
+        }
+      }
+      final bytes=MasterDataTransfer.encodeRows(headers,rows,csv:csv);
+      final ext=csv?'csv':'xlsx';
+      await MasterDataTransfer.shareExport(bytes:bytes,filename:'naeemsoft-'+kind+'.'+ext,csv:csv);
+    }catch(e){message(tr3('تعذر تصدير البيانات: '+e.toString(),'Could not export data: '+e.toString(),'Impossible d’exporter les données : '+e.toString()));}
   }
 
   Future<void> showDeliveries() async {
@@ -889,17 +1010,23 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   Future<void> editParty(String table, Map<String,Object?> party) async {
     final name=TextEditingController(text:'${party['name']}');
     final phone=TextEditingController(text:'${party['phone']??''}');
+    final address=TextEditingController(text:'${party['address']??''}');
+    final notes=TextEditingController(text:'${party['notes']??''}');
     final ok=await showDialog<bool>(context:context,builder:(d)=>AlertDialog(
       title:Text(tr3('تعديل البيانات','Edit details','Modifier les informations')),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
-        TextField(controller:name,decoration:InputDecoration(labelText:t(table=='suppliers'?'supplierName':'customerName'))),
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:InputDecoration(labelText:table=='suppliers'?tr3('اسم المورد / اسم المؤسسة','Supplier / company name','Fournisseur / nom de l’entreprise'):tr3('اسم العميل الكامل','Customer full name','Nom complet du client'))),
         const SizedBox(height:8),
-        TextField(controller:phone,decoration:InputDecoration(labelText:tr3('الهاتف','Phone','Téléphone'))),
-      ]),
+        TextField(controller:phone,keyboardType:TextInputType.phone,decoration:InputDecoration(labelText:tr3('رقم الهاتف','Phone number','Numéro de téléphone'))),
+        const SizedBox(height:8),
+        TextField(controller:address,maxLines:2,decoration:InputDecoration(labelText:tr3('العنوان','Address','Adresse'))),
+        const SizedBox(height:8),
+        TextField(controller:notes,maxLines:2,decoration:InputDecoration(labelText:tr3('ملاحظات (اختياري)','Notes (optional)','Notes (facultatif)'))),
+      ])),
       actions:[TextButton(onPressed:()=>Navigator.pop(d,false),child:Text(t('cancel'))),FilledButton(onPressed:()=>Navigator.pop(d,true),child:Text(t('save')))],
     ));
     if(ok==true){
-      await db.updateParty(table:table,id:party['id'] as int,name:name.text,phone:phone.text);
+      await db.updateParty(table:table,id:party['id'] as int,name:name.text,phone:phone.text,address:address.text,notes:notes.text);
       message(tr3('تم تحديث البيانات','Details updated','Informations mises à jour'));
     }
   }
@@ -920,8 +1047,51 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   pw.TextDirection get pdfTextDirection =>
       rtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
 
+
+  pw.Widget companyPdfHeader(Map<String, String> profile) {
+    final name = (profile['company_name'] ?? '').trim();
+    final details = <String>[
+      profile['company_phone'] ?? '',
+      profile['company_email'] ?? '',
+      [
+        profile['company_country'] ?? '',
+        profile['company_city'] ?? '',
+        profile['company_area'] ?? '',
+        profile['company_address'] ?? '',
+      ].where((v) => v.trim().isNotEmpty).join(' - '),
+      profile['company_website'] ?? '',
+      profile['company_registration'] ?? '',
+    ].where((v) => v.trim().isNotEmpty).toList();
+    pw.MemoryImage? logo;
+    final encoded = profile['company_logo_base64'] ?? '';
+    if (encoded.isNotEmpty) {
+      try { logo = pw.MemoryImage(base64Decode(encoded)); } catch (_) {}
+    }
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        if (logo != null)
+          pw.Center(child: pw.Container(
+            height: 58, width: 150,
+            margin: const pw.EdgeInsets.only(bottom: 5),
+            child: pw.Image(logo, fit: pw.BoxFit.contain),
+          )),
+        pw.Center(child: pw.Text(
+          name.isEmpty ? 'NaeemSoft WMS' : name,
+          style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20),
+        )),
+        ...details.map((line) => pw.Center(child: pw.Text(
+          line, style: const pw.TextStyle(fontSize: 8),
+          textAlign: pw.TextAlign.center,
+        ))),
+        pw.SizedBox(height: 8),
+      ],
+    );
+  }
+
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
+    final companyProfile=await db.companyProfile();
     final result = await db.documentDetails(documentId);
     final doc = result['document'] as Map<String, Object?>;
     final lines = result['lines'] as List<Map<String, Object?>>;
@@ -938,8 +1108,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text('NaeemSoft WMS',
-                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              companyPdfHeader(companyProfile),
               pw.Center(child: pw.Text(
                 documentKind == 'receipt'
                     ? tr3('سند استلام بضاعة', 'Goods Receipt', 'Bon de réception')
@@ -1001,6 +1170,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
     required Map<String, Object?> statement,
   }) async {
     await SragFonts.load();
+    final companyProfile=await db.companyProfile();
     final party = (supplier ? statement['supplier'] : statement['customer']) as Map<String, Object?>;
     final entries = statement['entries'] as List<Map<String, Object?>>;
     final pdf = pw.Document(
@@ -1014,8 +1184,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text('NaeemSoft WMS',
-                  style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
+              companyPdfHeader(companyProfile),
               pw.Center(child: pw.Text(
                 supplier
                     ? tr3('كشف حساب مورد', 'Supplier Statement', 'Relevé fournisseur')
@@ -1092,6 +1261,145 @@ class _WarehouseHomeState extends State<WarehouseHome> {
   }
 
 
+
+
+  Future<void> showCompanyProfile() async {
+    final profile = await db.companyProfile();
+    final fields = <String, TextEditingController>{
+      'company_name': TextEditingController(text: profile['company_name']),
+      'company_phone': TextEditingController(text: profile['company_phone']),
+      'company_email': TextEditingController(text: profile['company_email']),
+      'company_country': TextEditingController(text: profile['company_country']),
+      'company_city': TextEditingController(text: profile['company_city']),
+      'company_area': TextEditingController(text: profile['company_area']),
+      'company_address': TextEditingController(text: profile['company_address']),
+      'company_website': TextEditingController(text: profile['company_website']),
+      'company_registration': TextEditingController(text: profile['company_registration']),
+    };
+    String logoBase64 = profile['company_logo_base64'] ?? '';
+    String? error;
+    String label(String ar, String en, String fr) => tr3(ar, en, fr);
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setLocal) => AlertDialog(
+          title: Text(label('بيانات المؤسسة', 'Organization profile', 'Profil de l’organisation')),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (logoBase64.isNotEmpty)
+                    Container(
+                      height: 90, width: double.infinity,
+                      alignment: Alignment.center,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: Image.memory(base64Decode(logoBase64), fit: BoxFit.contain),
+                    )
+                  else
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.business, size: 48),
+                    ),
+                  Row(children: [
+                    Expanded(child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await FilePicker.platform.pickFiles(
+                          type: FileType.image, allowMultiple: false, withData: true,
+                        );
+                        if (picked == null || picked.files.isEmpty) return;
+                        final bytes = picked.files.single.bytes;
+                        if (bytes == null || bytes.isEmpty) {
+                          setLocal(() => error = label('تعذر قراءة الصورة المختارة','Could not read the selected image','Impossible de lire l’image sélectionnée'));
+                          return;
+                        }
+                        if (bytes.length > 3 * 1024 * 1024) {
+                          setLocal(() => error = label('حجم الشعار أكبر من 3 ميجابايت','Logo must be 3 MB or smaller','Le logo doit faire 3 Mo ou moins'));
+                          return;
+                        }
+                        setLocal(() { logoBase64 = base64Encode(bytes); error = null; });
+                      },
+                      icon: const Icon(Icons.image_outlined),
+                      label: Text(label('اختيار الشعار','Choose logo','Choisir le logo')),
+                    )),
+                    if (logoBase64.isNotEmpty)
+                      IconButton(
+                        tooltip: label('إزالة الشعار','Remove logo','Supprimer le logo'),
+                        onPressed: () => setLocal(() => logoBase64 = ''),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                  ]),
+                  const SizedBox(height: 10),
+                  TextField(controller: fields['company_name'], decoration: InputDecoration(
+                    labelText: label('اسم المؤسسة الرسمي *','Official organization name *','Nom officiel de l’organisation *'),
+                  )),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_phone'], keyboardType: TextInputType.phone,
+                    decoration: InputDecoration(labelText: label('رقم الهاتف','Phone','Téléphone'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_email'], keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(labelText: label('البريد الإلكتروني','Email','E-mail'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_country'], decoration: InputDecoration(labelText: label('الدولة','Country','Pays'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_city'], decoration: InputDecoration(labelText: label('المدينة','City','Ville'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_area'], decoration: InputDecoration(labelText: label('المنطقة / الحي','Area / district','Zone / quartier'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_address'], maxLines: 2,
+                    decoration: InputDecoration(labelText: label('العنوان التفصيلي','Detailed address','Adresse détaillée'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_website'], keyboardType: TextInputType.url,
+                    decoration: InputDecoration(labelText: label('الموقع الإلكتروني','Website','Site web'))),
+                  const SizedBox(height: 8),
+                  TextField(controller: fields['company_registration'],
+                    decoration: InputDecoration(labelText: label('رقم التسجيل (اختياري)','Registration number (optional)','Numéro d’enregistrement (facultatif)'))),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(t('cancel'))),
+            FilledButton(
+              onPressed: () {
+                if ((fields['company_name']?.text.trim() ?? '').isEmpty) {
+                  setLocal(() => error = label('اسم المؤسسة مطلوب','Organization name is required','Le nom de l’organisation est obligatoire'));
+                  return;
+                }
+                Navigator.pop(dialogContext, true);
+              },
+              child: Text(t('save')),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (saved == true) {
+      try {
+        final values = <String, String>{
+          for (final entry in fields.entries) entry.key: entry.value.text.trim(),
+          'company_logo_base64': logoBase64,
+        };
+        await db.saveCompanyProfile(values);
+        message(label('تم حفظ بيانات المؤسسة','Organization profile saved','Profil de l’organisation enregistré'));
+      } catch (e) {
+        message(e.toString());
+      }
+    }
+    for (final controller in fields.values) {
+      controller.dispose();
+    }
+  }
+
+  Future<void> showAccessAdmin() async {
+    await Navigator.push(context,MaterialPageRoute(builder:(_)=>AccessAdminScreen(language: lang)));
+  }
 
   Future<void> showReturns() async {
     String returnKind='return_in';
@@ -1333,11 +1641,11 @@ class _WarehouseHomeState extends State<WarehouseHome> {
                   final label=payment?tr3('دفعة','Payment','Paiement')
                     :(isReturn?tr3('مرتجع عميل','Customer return','Retour client'):tr3('فاتورة صرف','Issue invoice','Facture de sortie'));
                   return ListTile(
-                    dense:true,leading:Icon(credit?Icons.payments:Icons.receipt_long),
+                    dense:true,leading:Icon(credit?Icons.receipt_long:Icons.payments),
                     title:Text('${e['document_no']} · $label'),
                     subtitle:Text('${e['entry_date']} · ${e['status']}'),
                     trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[
-                      Text(credit?'-${money(e['credit_minor'])}':'+${money(e['debit_minor'])}'),
+                      Text(credit?'+${money(e['credit_minor'])}':'-${money(e['debit_minor'])}'),
                       Text('${tr3('الرصيد','Balance','Solde')}: ${money(e['balance_minor'])}',style:Theme.of(ctx).textTheme.bodySmall),
                     ]),
                   );
