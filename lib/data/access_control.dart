@@ -138,6 +138,16 @@ extension WmsAccessControl on WmsDatabase {
   }
 
 
+  Future<bool?> userPermissionOverride(int userId, String permissionKey) async {
+    final db = await database;
+    final rows = await db.query('user_permissions',
+      columns: ['is_allowed'],
+      where: 'user_id=? AND permission_key=?',
+      whereArgs: [userId, permissionKey], limit: 1);
+    if (rows.isEmpty) return null;
+    return rows.first['is_allowed'] == 1;
+  }
+
   Future<void> clearUserPermission(int userId, String permissionKey) async {
     final db = await database;
     await db.delete('user_permissions',
