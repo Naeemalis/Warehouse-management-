@@ -1096,8 +1096,8 @@ extension WmsFinanceAndHistory on WmsDatabase {
     final docs = await db.rawQuery("""
       SELECT d.id,d.document_no,d.created_at AS entry_date,d.status,
         d.party_name_snapshot,
-        CASE WHEN d.kind='receipt' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
-        CASE WHEN d.kind='return_out' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
+        CASE WHEN d.kind='return_out' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS debit_minor,
+        CASE WHEN d.kind='receipt' THEN COALESCE(SUM(l.entered_quantity*l.unit_price_minor),0) ELSE 0 END AS credit_minor,
         d.kind AS entry_type
       FROM documents d JOIN document_lines l ON l.document_id=d.id
       WHERE d.kind IN ('receipt','return_out') AND d.status='approved'
@@ -1107,7 +1107,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
     final payments = await db.rawQuery("""
       SELECT id, 'PAY-'||id AS document_no, payment_date AS entry_date,
         'recorded' AS status, '' AS party_name_snapshot,
-        0 AS debit_minor, amount_minor AS credit_minor,
+        amount_minor AS debit_minor, 0 AS credit_minor,
         'payment' AS entry_type, payment_method, reference_no, notes
       FROM supplier_payments WHERE supplier_id=?
     """, [supplierId]);
@@ -1116,8 +1116,8 @@ extension WmsFinanceAndHistory on WmsDatabase {
     var balance = 0;
     final ledger = <Map<String,Object?>>[];
     for (final entry in entries) {
-      balance += (entry['debit_minor'] as num).round();
-      balance -= (entry['credit_minor'] as num).round();
+      balance += (entry['credit_minor'] as num).round();
+      balance -= (entry['debit_minor'] as num).round();
       ledger.add({...entry, 'balance_minor':balance});
     }
     return {
