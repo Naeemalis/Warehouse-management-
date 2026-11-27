@@ -160,10 +160,10 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
 
   Future<void> showUserOverrides(Map<String,Object?> user) async {
     final userId = user['id'] as int;
-    final overrides = <String,int>{};
+    final overrides = <String,bool?>{};
     for (final p in permissions) {
-      final allowed = await db.userHasPermission(userId,p['permission_key'] as String);
-      overrides[p['permission_key'] as String] = allowed ? 1 : 0;
+      final override = await db.userPermissionOverride(userId,p['permission_key'] as String);
+      overrides[p['permission_key'] as String] = override;
     }
     if (!mounted) return;
     await showModalBottomSheet<void>(context:context,isScrollControlled:true,
@@ -179,7 +179,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
                 title:Text(p['label_ar'].toString()),
                 subtitle:Text(p['module'].toString()),
                 trailing:DropdownButton<String>(
-                  value: overrides.containsKey(key) ? (overrides[key]==1?'allow':'deny') : 'inherit',
+                  value: overrides[key]==null ? 'inherit' : (overrides[key]==true?'allow':'deny'),
                   items:const [
                     DropdownMenuItem(value:'inherit',child:Text('حسب الدور')),
                     DropdownMenuItem(value:'allow',child:Text('سماح')),
@@ -193,7 +193,7 @@ class _AccessAdminScreenState extends State<AccessAdminScreen>
                     } else {
                       await db.setUserPermission(userId:userId,permissionKey:key,
                         allowed:v=='allow');
-                      overrides[key]=v=='allow'?1:0;
+                      overrides[key]=v=='allow';
                     }
                     setSheet((){});
                   },
