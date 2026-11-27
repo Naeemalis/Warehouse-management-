@@ -369,9 +369,10 @@ class WmsDatabase {
   Future<double> _batchAvailableBase(DatabaseExecutor txn, int batchId) async {
     final rows = await txn.rawQuery("""
       SELECT b.received_quantity_base-COALESCE((
-        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END)
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base WHEN m.direction='IN' AND d.kind='return_in' THEN -a.quantity_base ELSE 0 END)
         FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
+        JOIN documents d ON d.id=m.document_id
         WHERE a.batch_id=b.id
       ),0) AS available_base
       FROM stock_batches b WHERE b.id=?
@@ -645,8 +646,9 @@ class WmsDatabase {
           final today=DateTime.now().toIso8601String().substring(0,10);
           final batches=await txn.rawQuery("""
             SELECT b.*,b.received_quantity_base-COALESCE((
-              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+              SELECT SUM(CASE WHEN sm.direction='OUT' THEN a.quantity_base WHEN sm.direction='IN' AND sd.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
               JOIN stock_movements sm ON sm.id=a.stock_movement_id
+              JOIN documents sd ON sd.id=sm.document_id
               WHERE a.batch_id=b.id
             ),0) available_base
             FROM stock_batches b
@@ -710,8 +712,9 @@ extension WmsCatalogOperations on WmsDatabase {
         (SELECT MIN(b.expiry_date) FROM stock_batches b
           WHERE b.product_id=p.id AND b.expiry_date IS NOT NULL
           AND b.received_quantity_base-COALESCE((
-            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+            SELECT SUM(CASE WHEN om.direction='OUT' THEN a.quantity_base WHEN om.direction='IN' AND od.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
             JOIN stock_movements om ON om.id=a.stock_movement_id
+            JOIN documents od ON od.id=om.document_id
             WHERE a.batch_id=b.id
           ),0)>0) AS nearest_expiry_date,
         COALESCE(
@@ -783,11 +786,11 @@ extension WmsCatalogOperations on WmsDatabase {
     return db.query(table, where: 'is_active=1', orderBy: 'name COLLATE NOCASE');
   }
 
-  Future<int> saveParty({required bool supplier, required String name, String? phone}) async {
+  Future<int> saveParty({required bool supplier, required String name, String? phone, String? address, String? notes}) async {
     if (name.trim().isEmpty) throw ArgumentError('Name is required');
     final db = await database;
     return db.insert(supplier ? 'suppliers' : 'customers', {
-      'name': name.trim(), 'phone': phone,
+      'name': name.trim(), 'phone': phone?.trim(), 'address': address?.trim(), 'notes': notes?.trim(),
       'created_at': DateTime.now().toIso8601String(),
     });
   }
@@ -925,8 +928,9 @@ extension WmsStockTraceability on WmsDatabase {
     final db=await database;
     return db.rawQuery("""
       SELECT b.*,b.received_quantity_base-COALESCE((
-        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base ELSE -a.quantity_base END) FROM stock_movement_allocations a
+        SELECT SUM(CASE WHEN m.direction='OUT' THEN a.quantity_base WHEN m.direction='IN' AND d.kind='return_in' THEN -a.quantity_base ELSE 0 END) FROM stock_movement_allocations a
         JOIN stock_movements m ON m.id=a.stock_movement_id
+        JOIN documents d ON d.id=m.document_id
         WHERE a.batch_id=b.id
       ),0) remaining_quantity_base
       FROM stock_batches b WHERE b.product_id=?
@@ -1172,7 +1176,7 @@ extension WmsFinanceAndHistory on WmsDatabase {
   }
 
   Future<void> updateParty({
-    required String table, required int id, required String name, String? phone,
+    required String table, required int id, required String name, String? phone, String? address, String? notes,
   }) async {
     if (table!='customers' && table!='suppliers') throw ArgumentError('Unsupported party table');
     if (name.trim().isEmpty) throw ArgumentError('Name is required');
@@ -1180,11 +1184,11 @@ extension WmsFinanceAndHistory on WmsDatabase {
     await db.transaction((txn) async {
       final rows=await txn.query(table,where:'id=?',whereArgs:[id],limit:1);
       if(rows.isEmpty) throw StateError('Record not found');
-      await txn.update(table,{'name':name.trim(),'phone':phone?.trim()},
+      await txn.update(table,{'name':name.trim(),'phone':phone?.trim(),'address':address?.trim(),'notes':notes?.trim()},
         where:'id=?',whereArgs:[id]);
       await txn.insert('audit_log',{
         'entity_type':table.substring(0,table.length-1),'entity_id':id,
-        'action':'updated','actor_id':1,'details':'Name or phone updated',
+        'action':'updated','actor_id':1,'details':'Name, phone, address or notes updated',
         'created_at':DateTime.now().toIso8601String(),
       });
     });
