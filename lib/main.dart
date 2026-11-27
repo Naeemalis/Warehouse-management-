@@ -8,6 +8,8 @@ import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
+import 'data/access_control.dart';
+import 'access_admin_screen.dart';
 import 'data/master_data_import.dart';
 import 'data/master_data_transfer.dart';
 import 'domain/unit_conversion.dart';
@@ -183,6 +185,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='parties') manageParties();
               else if(v=='deliveries') showDeliveries();
               else if(v=='approvals') showApprovals();
+              else if(v=='admin') showAccessAdmin();
               else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
             },
             itemBuilder: (_) => [
@@ -194,6 +197,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'parties',child:Text(tr3('الموردون والعملاء','Suppliers and customers','Fournisseurs et clients'))),
               PopupMenuItem(value:'deliveries',child:Text(tr3('التسليمات','Deliveries','Livraisons'))),
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
+              PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, departments & permissions','Utilisateurs, services et permissions'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
@@ -1021,6 +1025,8 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
 
   Future<Uint8List> buildDocumentPdf(int documentId) async {
     await SragFonts.load();
+    final companyName=await db.companyName();
+    final documentHeading=companyName.isEmpty?'NaeemSoft WMS':companyName;
     final result = await db.documentDetails(documentId);
     final doc = result['document'] as Map<String, Object?>;
     final lines = result['lines'] as List<Map<String, Object?>>;
@@ -1037,7 +1043,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text('NaeemSoft WMS',
+              pw.Center(child: pw.Text(documentHeading,
                   style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
               pw.Center(child: pw.Text(
                 documentKind == 'receipt'
@@ -1100,6 +1106,8 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     required Map<String, Object?> statement,
   }) async {
     await SragFonts.load();
+    final companyName=await db.companyName();
+    final statementHeading=companyName.isEmpty?'NaeemSoft WMS':companyName;
     final party = (supplier ? statement['supplier'] : statement['customer']) as Map<String, Object?>;
     final entries = statement['entries'] as List<Map<String, Object?>>;
     final pdf = pw.Document(
@@ -1113,7 +1121,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.Center(child: pw.Text('NaeemSoft WMS',
+              pw.Center(child: pw.Text(statementHeading,
                   style: pw.TextStyle(font: SragFonts.bold!, fontSize: 20))),
               pw.Center(child: pw.Text(
                 supplier
@@ -1191,6 +1199,10 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   }
 
 
+
+  Future<void> showAccessAdmin() async {
+    await Navigator.push(context,MaterialPageRoute(builder:(_)=>const AccessAdminScreen()));
+  }
 
   Future<void> showReturns() async {
     String returnKind='return_in';
