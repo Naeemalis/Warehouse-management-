@@ -6,7 +6,7 @@
 
 - Repository: `Naeemalis/Warehouse-management-`
 - Documentation branch: `docs/technical-reference`
-- Source snapshot: `9b056b9ac97584d2d139548b4f697cb9c73a24c0`
+- Source snapshot: `5ba022c3e9fb428c1554e94217762cb19951cf37`
 - Main UI: `lib/main.dart`
 - SQLite/data layer: `lib/data/wms_database.dart`
 - Unit conversion: `lib/domain/unit_conversion.dart`
