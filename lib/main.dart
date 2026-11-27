@@ -519,13 +519,18 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController();
     final price=TextEditingController();
+    final productSearch=TextEditingController();
+    List<Map<String,Object?>> visibleProductRows=List.of(productRows);
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
 
     await showDialog<void>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,setLocal)=>AlertDialog(
       title:Text(receiving?t('receive'):t('issue')),
-      content:SizedBox(width:420,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      content:SizedBox(
+        width:MediaQuery.of(ctx).size.width*.94,
+        height:MediaQuery.of(ctx).size.height*.78,
+        child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(
           value:partyId,decoration:InputDecoration(labelText:receiving?t('supplier'):t('customer')),
           items:partyRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
@@ -535,18 +540,41 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
           alignment:AlignmentDirectional.centerStart,
           child:Text(tr3('معرض الأصناف','Product gallery','Catalogue des produits'),
             style:Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.bold))),
+        const SizedBox(height:8),
+        TextField(
+          controller:productSearch,
+          textInputAction:TextInputAction.search,
+          decoration:InputDecoration(
+            prefixIcon:const Icon(Icons.search),
+            labelText:tr3('بحث عن صنف بالاسم أو الرمز','Search by product name or code','Rechercher par nom ou code'),
+            suffixIcon:productSearch.text.isEmpty?null:IconButton(
+              tooltip:tr3('مسح البحث','Clear search','Effacer la recherche'),
+              icon:const Icon(Icons.close),
+              onPressed:()=>setLocal((){productSearch.clear();visibleProductRows=List.of(productRows);}),
+            ),
+          ),
+          onChanged:(value){
+            final query=value.trim().toLowerCase();
+            setLocal((){
+              visibleProductRows=query.isEmpty?List.of(productRows):productRows.where((p){
+                final name=(p['name']??'').toString().toLowerCase();
+                final code=(p['code']??'').toString().toLowerCase();
+                return name.contains(query)||code.contains(query);
+              }).toList();
+            });
+          },
+        ),
         const SizedBox(height:6),
         SizedBox(
-          height:productRows.isEmpty?58:190,
-          child:productRows.isEmpty
-            ? Center(child:Text(t('empty')))
+          height:visibleProductRows.isEmpty?58:320,
+          child:visibleProductRows.isEmpty
+            ? Center(child:Text(productSearch.text.trim().isEmpty?t('empty'):tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
             : GridView.builder(
-                scrollDirection:Axis.horizontal,
                 gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount:2,mainAxisExtent:112,crossAxisSpacing:6,mainAxisSpacing:6),
-                itemCount:productRows.length,
+                  crossAxisCount:3,mainAxisExtent:82,crossAxisSpacing:6,mainAxisSpacing:6),
+                itemCount:visibleProductRows.length,
                 itemBuilder:(context,index){
-                  final p=productRows[index];
+                  final p=visibleProductRows[index];
                   final selected=p['id']==productId;
                   return Card(
                     color:selected?Theme.of(ctx).colorScheme.primaryContainer:null,
@@ -586,7 +614,14 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
               final v=createdProduct['id'] as int;
               final u=await db.listPurchaseUnits(v);
               setLocal(() {
-                productRows=refreshed; productId=v; units=u;
+                productRows=refreshed;
+                final query=productSearch.text.trim().toLowerCase();
+                visibleProductRows=query.isEmpty?List.of(refreshed):refreshed.where((p){
+                  final name=(p['name']??'').toString().toLowerCase();
+                  final code=(p['code']??'').toString().toLowerCase();
+                  return name.contains(query)||code.contains(query);
+                }).toList();
+                productId=v; units=u;
                 unitId=u.isEmpty?null:u.first['id'] as int;
               });
             },
