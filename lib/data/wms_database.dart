@@ -1,4 +1,5 @@
 import '../domain/unit_conversion.dart';
+import 'market_analytics_schema.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
@@ -12,7 +13,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 10,
+      version: 11,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -98,6 +99,9 @@ class WmsDatabase {
         }
         if (oldVersion < 10) {
           await db.execute("ALTER TABLE documents ADD COLUMN document_type TEXT NOT NULL DEFAULT 'standard'");
+        }
+        if (oldVersion < 11) {
+          await createMarketAnalyticsSchema(db);
         }
         if (oldVersion == 8) {
           await db.execute("ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''");
@@ -250,6 +254,7 @@ class WmsDatabase {
     await db.execute('CREATE INDEX idx_movements_product ON stock_movements(product_id, created_at)');
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
+    await createMarketAnalyticsSchema(db);
   }
 
   Future<void> _createAccessControlSchema(DatabaseExecutor db) async {
