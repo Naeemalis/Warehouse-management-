@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS growth_opportunities (
   estimated_investment_minor INTEGER CHECK(estimated_investment_minor >= 0),
   priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','critical')),
   status TEXT NOT NULL DEFAULT 'identified' CHECK(status IN ('identified','under_review','approved','rejected','implemented','on_hold')),
-  created_by INTEGER,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS market_decisions (
   budget_minor INTEGER CHECK(budget_minor >= 0),
   target_date TEXT,
   rationale TEXT NOT NULL,
-  decided_by INTEGER,
+  decided_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   decided_at TEXT NOT NULL
 );
 
