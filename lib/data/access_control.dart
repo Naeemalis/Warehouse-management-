@@ -205,6 +205,9 @@ extension WmsAccessControl on WmsDatabase {
     final changed = await db.update('users', values,
       where: 'id=?', whereArgs: [id]);
     if (changed != 1) throw StateError('User not found');
+    if (passwordHash != null && passwordHash.isNotEmpty) {
+      await db.delete('user_sessions', where: 'user_id=?', whereArgs: [id]);
+    }
   }
 
   String _hashLoginPassword(String salt, String password) =>
