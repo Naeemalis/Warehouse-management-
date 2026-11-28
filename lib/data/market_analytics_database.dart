@@ -1,3 +1,4 @@
+import 'access_control.dart';
 import 'wms_database.dart';
 
 /// Read/write operations for market intelligence.
@@ -5,6 +6,12 @@ import 'wms_database.dart';
 /// These methods intentionally read realized sales/issues/receipts from the
 /// existing approved WMS ledger. Market observations are stored separately.
 extension WmsMarketAnalytics on WmsDatabase {
+  Future<void> _requireMarketPermission(int userId, String permissionKey) async {
+    if (!await userHasPermission(userId, permissionKey)) {
+      throw StateError('Permission denied: $permissionKey');
+    }
+  }
+
   String _marketDate(String value, String field) {
     final parsed = DateTime.tryParse(value);
     if (parsed == null || value.length < 10) {
@@ -14,12 +21,14 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<List<Map<String, Object?>>> productMarketPerformance({
+    required int userId,
     required String periodStart,
     required String periodEnd,
   }) async {
     final start = _marketDate(periodStart, 'periodStart');
     final end = _marketDate(periodEnd, 'periodEnd');
     if (end.compareTo(start) < 0) throw ArgumentError('periodEnd precedes periodStart');
+    await _requireMarketPermission(userId, 'market.analytics.view');
     final db = await database;
     return db.rawQuery("""
       WITH
@@ -139,6 +148,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<Map<String, Object?>> productMarketShare({
+    required int userId,
     required int productId,
     required int areaId,
     required String periodStart,
@@ -147,6 +157,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     final start = _marketDate(periodStart, 'periodStart');
     final end = _marketDate(periodEnd, 'periodEnd');
     if (end.compareTo(start) < 0) throw ArgumentError('periodEnd precedes periodStart');
+    await _requireMarketPermission(userId, 'market.analytics.view');
     final db = await database;
     final sales = await db.rawQuery("""
       SELECT
@@ -208,12 +219,14 @@ extension WmsMarketAnalytics on WmsDatabase {
     };
   }
 
-  Future<List<Map<String, Object?>>> listMarketAreas() async {
+  Future<List<Map<String, Object?>>> listMarketAreas({required int userId}) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
     final db = await database;
     return db.query('market_areas', where:'is_active=1', orderBy:'area_type,name COLLATE NOCASE');
   }
 
   Future<int> saveMarketArea({
+    required int userId,
     int? parentAreaId,
     String? areaCode,
     required String name,
@@ -223,6 +236,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (name.trim().isEmpty || !types.contains(areaType)) {
       throw ArgumentError('A name and valid area type are required');
     }
+    await _requireMarketPermission(userId, 'market.demand.manage');
     final db = await database;
     return db.insert('market_areas', {
       'parent_area_id':parentAreaId,
@@ -234,6 +248,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> saveMarketDataSource({
+    required int userId,
     required String sourceType,
     required String sourceName,
     String? collectionMethod,
@@ -247,6 +262,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (reliabilityScore != null && (reliabilityScore < 0 || reliabilityScore > 100)) {
       throw ArgumentError('Reliability score must be between 0 and 100');
     }
+    await _requireMarketPermission(userId, 'market.demand.manage');
     final db = await database;
     return db.insert('market_data_sources', {
       'source_type':sourceType,'source_name':sourceName.trim(),
@@ -256,6 +272,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> saveCompetitor({
+    required int userId,
     required String name,
     String competitorType = 'direct',
     String? phone,
@@ -266,6 +283,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (name.trim().isEmpty || !types.contains(competitorType)) {
       throw ArgumentError('Competitor name and type are required');
     }
+    await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
     return db.insert('competitors', {
       'name':name.trim(),'competitor_type':competitorType,
@@ -277,12 +295,18 @@ extension WmsMarketAnalytics on WmsDatabase {
 
   /// Public competitor list only. Confidential records are deliberately omitted
   /// until authenticated permission enforcement is wired into the application.
-  Future<List<Map<String, Object?>>> listPublicCompetitors() async {
+  Future<List<Map<String, Object?>>> listCompetitorsForUser({required int userId}) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
     final db = await database;
-    return db.query('competitors',where:'is_active=1 AND is_confidential=0',orderBy:'name COLLATE NOCASE');
+    return db.query('competitors',
+      where:'is_active=1 AND (is_confidential=0 OR ?=1)',
+      whereArgs:[canViewConfidential ? 1 : 0],
+      orderBy:'name COLLATE NOCASE');
   }
 
   Future<int> saveCompetitorProduct({
+    required int userId,
     required int competitorId,
     int? internalProductId,
     required String externalProductName,
@@ -297,6 +321,7 @@ extension WmsMarketAnalytics on WmsDatabase {
         (quantityInInternalBase != null && (!quantityInInternalBase.isFinite || quantityInInternalBase <= 0))) {
       throw ArgumentError('A product name and valid optional unit conversion are required');
     }
+    await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
     final competitor = await db.query('competitors',where:'id=? AND is_active=1 AND is_confidential=0',whereArgs:[competitorId],limit:1);
     if (competitor.isEmpty) throw StateError('Competitor is not available in the public market workspace');
@@ -311,6 +336,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> recordCompetitorPrice({
+    required int userId,
     required int competitorProductId,
     int? branchId,
     int? dataSourceId,
@@ -332,6 +358,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     }
     final observed = DateTime.tryParse(observedAt);
     if (observed == null) throw ArgumentError('observedAt must be a valid ISO date/time');
+    await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
     final product = await db.rawQuery("""
       SELECT cp.id FROM competitor_products cp
@@ -351,6 +378,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> saveMarketSizeEstimate({
+    required int userId,
     required int productId,
     required int areaId,
     int? dataSourceId,
@@ -379,6 +407,7 @@ extension WmsMarketAnalytics on WmsDatabase {
         (!totalMarketSalesValueMinor.isFinite || totalMarketSalesValueMinor < 0)) {
       throw ArgumentError('Market value must be non-negative');
     }
+    await _requireMarketPermission(userId, 'market.demand.manage');
     final db = await database;
     return db.insert('market_size_estimates', {
       'product_id':productId,'area_id':areaId,'data_source_id':dataSourceId,
@@ -394,6 +423,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> recordUnfulfilledDemand({
+    required int userId,
     int? productId,
     required String productName,
     int? areaId,
@@ -412,6 +442,7 @@ extension WmsMarketAnalytics on WmsDatabase {
       throw ArgumentError('Unfulfilled demand details are invalid');
     }
     final date = _marketDate(requestDate,'requestDate');
+    await _requireMarketPermission(userId, 'market.demand.manage');
     final db = await database;
     return db.insert('unfulfilled_demand', {
       'product_id':productId,'product_name_snapshot':productName.trim(),
@@ -425,6 +456,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> createGrowthOpportunity({
+    required int userId,
     int? productId,
     int? areaId,
     required String opportunityType,
@@ -440,6 +472,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (!types.contains(opportunityType) || !priorities.contains(priority) || title.trim().isEmpty) {
       throw ArgumentError('Opportunity type, title and priority are required');
     }
+    await _requireMarketPermission(userId, 'market.decisions.manage');
     final db = await database;
     final now = DateTime.now().toIso8601String();
     return db.insert('growth_opportunities', {
@@ -453,6 +486,7 @@ extension WmsMarketAnalytics on WmsDatabase {
   }
 
   Future<int> recordMarketDecision({
+    required int userId,
     required int opportunityId,
     required String decision,
     double? plannedQuantityBase,
@@ -465,6 +499,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (!decisions.contains(decision) || rationale.trim().isEmpty) {
       throw ArgumentError('Decision and rationale are required');
     }
+    await _requireMarketPermission(userId, 'market.decisions.manage');
     final db = await database;
     final id = await db.insert('market_decisions', {
       'opportunity_id':opportunityId,'decision':decision,
