@@ -385,6 +385,8 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     Map<String,Object?>? unit;
     List<Map<String,Object?>> units=[];
     final basket=<Map<String,Object?>>[];
+    final productSearch=TextEditingController();
+    List<Map<String,Object?>> visibleAvailable=List.of(available);
     String qty='';
     Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
       final loaded=await db.listUnits(p['id'] as int);
@@ -408,18 +410,46 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
             onChanged:(v)=>setLocal(()=>customerId=v)),
           const SizedBox(height:6),
           Align(alignment:AlignmentDirectional.centerStart,child:Text(tr3('معرض الأصناف المتاحة','Available products','Produits disponibles'))),
-          Expanded(flex:5,child:GridView.builder(
-            padding:const EdgeInsets.symmetric(vertical:6),
-            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:76,crossAxisSpacing:5,mainAxisSpacing:5),
-            itemCount:available.length,itemBuilder:(ctx,i){
-              final p=available[i];final active=productId==p['id'];
+          const SizedBox(height:4),
+          TextField(
+            controller:productSearch,
+            textInputAction:TextInputAction.search,
+            decoration:InputDecoration(
+              isDense:true,
+              prefixIcon:const Icon(Icons.search,size:18),
+              labelText:tr3('بحث عن صنف بالاسم أو الرمز','Search products by name or code','Rechercher par nom ou code'),
+              suffixIcon:productSearch.text.isEmpty?null:IconButton(
+                icon:const Icon(Icons.close,size:18),
+                tooltip:tr3('مسح البحث','Clear search','Effacer la recherche'),
+                onPressed:()=>setLocal((){productSearch.clear();visibleAvailable=List.of(available);}),
+              ),
+            ),
+            onChanged:(value){
+              final query=value.trim().toLowerCase();
+              setLocal((){
+                visibleAvailable=query.isEmpty?List.of(available):available.where((p){
+                  final name=(p['name']??'').toString().toLowerCase();
+                  final code=(p['code']??'').toString().toLowerCase();
+                  return name.contains(query)||code.contains(query);
+                }).toList();
+              });
+            },
+          ),
+          Expanded(flex:5,child:visibleAvailable.isEmpty
+            ?Center(child:Text(tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
+            :GridView.builder(
+            padding:const EdgeInsets.symmetric(vertical:4),
+            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:58,crossAxisSpacing:3,mainAxisSpacing:3),
+            itemCount:visibleAvailable.length,itemBuilder:(ctx,i){
+              final p=visibleAvailable[i];final active=productId==p['id'];
               return OutlinedButton(
-                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(4),
+                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(2),
                   backgroundColor:active?Theme.of(ctx).colorScheme.primaryContainer:null),
                 onPressed:()=>selectProduct(p,setLocal),
                 child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
-                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall,maxLines:1),
+                  const Icon(Icons.inventory_2_outlined,size:12),
+                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w600,height:1.0)),
+                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:7),maxLines:1,overflow:TextOverflow.ellipsis),
                 ]));
             })),
           const Divider(height:10),
@@ -571,7 +601,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
             ? Center(child:Text(productSearch.text.trim().isEmpty?t('empty'):tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
             : GridView.builder(
                 gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount:4,mainAxisExtent:64,crossAxisSpacing:4,mainAxisSpacing:4),
+                  crossAxisCount:4,mainAxisExtent:58,crossAxisSpacing:3,mainAxisSpacing:3),
                 itemCount:visibleProductRows.length,
                 itemBuilder:(context,index){
                   final p=visibleProductRows[index];
@@ -592,12 +622,12 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                       child:Padding(padding:const EdgeInsets.all(3),child:Column(
                         mainAxisAlignment:MainAxisAlignment.center,
                         children:[
-                          const Icon(Icons.inventory_2_outlined,size:15),
+                          const Icon(Icons.inventory_2_outlined,size:12),
                           const SizedBox(height:2),
                           Text('${p['name']}',maxLines:2,textAlign:TextAlign.center,
-                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:9,fontWeight:FontWeight.w600,height:1.05)),
+                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w600,height:1.0)),
                           Text('${p['base_unit_name']}',maxLines:1,overflow:TextOverflow.ellipsis,
-                            style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:8)),
+                            style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:7)),
                         ]))),
                   );
                 })),
