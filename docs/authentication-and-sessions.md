@@ -7,7 +7,7 @@
 - Existing account password compatibility is preserved: the password digest uses the current per-user salt and SHA-256 format already used by the user administration screen.
 - A single local session is stored in SQLite table `user_sessions` (schema version 12). It survives app restarts and remains valid until explicit sign-out, account deactivation, or password-hash change.
 - Session restoration joins the session to the current user record and requires `users.is_active=1` and an exact match between the stored password-hash snapshot and the current hash.
-- Deactivating a user deletes that user's local session immediately. Password reset invalidates an existing session at the next session validation because the password-hash snapshot no longer matches.
+- Deactivating a user deletes that user's local session immediately. Updating a user's password also deletes that user's local session immediately; the password-hash snapshot check is an additional restore-time safeguard.
 - Login, first-account setup, language selection, and sign-out are available in Arabic, English, and French.
 
 ## Data flow
