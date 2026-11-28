@@ -385,6 +385,8 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
     Map<String,Object?>? unit;
     List<Map<String,Object?>> units=[];
     final basket=<Map<String,Object?>>[];
+    final productSearch=TextEditingController();
+    List<Map<String,Object?>> visibleAvailable=List.of(available);
     String qty='';
     Future<void> selectProduct(Map<String,Object?> p,StateSetter setLocal) async {
       final loaded=await db.listUnits(p['id'] as int);
@@ -408,18 +410,46 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
             onChanged:(v)=>setLocal(()=>customerId=v)),
           const SizedBox(height:6),
           Align(alignment:AlignmentDirectional.centerStart,child:Text(tr3('معرض الأصناف المتاحة','Available products','Produits disponibles'))),
-          Expanded(flex:5,child:GridView.builder(
-            padding:const EdgeInsets.symmetric(vertical:6),
-            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:76,crossAxisSpacing:5,mainAxisSpacing:5),
-            itemCount:available.length,itemBuilder:(ctx,i){
-              final p=available[i];final active=productId==p['id'];
+          const SizedBox(height:4),
+          TextField(
+            controller:productSearch,
+            textInputAction:TextInputAction.search,
+            decoration:InputDecoration(
+              isDense:true,
+              prefixIcon:const Icon(Icons.search,size:18),
+              labelText:tr3('بحث عن صنف بالاسم أو الرمز','Search products by name or code','Rechercher par nom ou code'),
+              suffixIcon:productSearch.text.isEmpty?null:IconButton(
+                icon:const Icon(Icons.close,size:18),
+                tooltip:tr3('مسح البحث','Clear search','Effacer la recherche'),
+                onPressed:()=>setLocal((){productSearch.clear();visibleAvailable=List.of(available);}),
+              ),
+            ),
+            onChanged:(value){
+              final query=value.trim().toLowerCase();
+              setLocal((){
+                visibleAvailable=query.isEmpty?List.of(available):available.where((p){
+                  final name=(p['name']??'').toString().toLowerCase();
+                  final code=(p['code']??'').toString().toLowerCase();
+                  return name.contains(query)||code.contains(query);
+                }).toList();
+              });
+            },
+          ),
+          Expanded(flex:5,child:visibleAvailable.isEmpty
+            ?Center(child:Text(tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
+            :GridView.builder(
+            padding:const EdgeInsets.symmetric(vertical:4),
+            gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:4,mainAxisExtent:58,crossAxisSpacing:3,mainAxisSpacing:3),
+            itemCount:visibleAvailable.length,itemBuilder:(ctx,i){
+              final p=visibleAvailable[i];final active=productId==p['id'];
               return OutlinedButton(
-                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(4),
+                style:OutlinedButton.styleFrom(padding:const EdgeInsets.all(2),
                   backgroundColor:active?Theme.of(ctx).colorScheme.primaryContainer:null),
                 onPressed:()=>selectProduct(p,setLocal),
                 child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
-                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall,maxLines:1),
+                  const Icon(Icons.inventory_2_outlined,size:12),
+                  Text(p['name'].toString(),maxLines:2,overflow:TextOverflow.ellipsis,textAlign:TextAlign.center,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w600,height:1.0)),
+                  Text((p['stock_base'] as num).toStringAsFixed(2)+' '+p['base_unit_name'].toString(),style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:7),maxLines:1,overflow:TextOverflow.ellipsis),
                 ]));
             })),
           const Divider(height:10),
@@ -498,7 +528,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
   Future<void> _openReceiptTransaction({required bool receiving,Map<String,Object?>? selectedProduct}) async {
     final partyTable=receiving?'suppliers':'customers';
     final partyRows=await db.listParties(partyTable);
-    final productRows=await db.listProducts();
+    var productRows=await db.listProducts();
     if (!mounted) return;
     if (partyRows.isEmpty) {
       final controller=TextEditingController();
@@ -512,34 +542,131 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
       }
       return;
     }
-    if (productRows.isEmpty) { message(t('empty')); await addProduct(); return; }
+    if (productRows.isEmpty) { await addProduct(); productRows=await db.listProducts(); if(productRows.isEmpty)return; }
     int? partyId=partyRows.first['id'] as int;
     int? productId=selectedProduct?['id'] as int? ?? productRows.first['id'] as int;
     List<Map<String,Object?>> units=await db.listPurchaseUnits(productId);
     int? unitId=units.isEmpty?null:units.first['id'] as int;
     final quantity=TextEditingController();
     final price=TextEditingController();
+    final productSearch=TextEditingController();
+    List<Map<String,Object?>> visibleProductRows=List.of(productRows);
     final basket=<Map<String,Object?>>[];
     final expirySplits=<Map<String,Object?>>[];
     final expiryQty=TextEditingController(text:'1');
 
     await showDialog<void>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,setLocal)=>AlertDialog(
       title:Text(receiving?t('receive'):t('issue')),
-      content:SizedBox(width:420,child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      content:SizedBox(
+        width:MediaQuery.of(ctx).size.width*.94,
+        height:MediaQuery.of(ctx).size.height*.78,
+        child:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(
           value:partyId,decoration:InputDecoration(labelText:receiving?t('supplier'):t('customer')),
           items:partyRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
           onChanged:(v)=>setLocal(()=>partyId=v)),
         const SizedBox(height:10),
-        DropdownButtonFormField<int>(
-          value:productId,decoration:InputDecoration(labelText:t('product')),
-          items:productRows.map((p)=>DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))).toList(),
-          onChanged:(v) async { if(v==null)return; final u=await db.listPurchaseUnits(v); setLocal(() { productId=v; units=u; unitId=u.isEmpty?null:u.first['id'] as int; expirySplits.clear(); }); }),
-        const SizedBox(height:10),
-        DropdownButtonFormField<int>(
-          value:unitId,decoration:InputDecoration(labelText:t('unit')),
-          items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
-          onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
+        Align(
+          alignment:AlignmentDirectional.centerStart,
+          child:Text(tr3('معرض الأصناف','Product gallery','Catalogue des produits'),
+            style:Theme.of(ctx).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.bold))),
+        const SizedBox(height:8),
+        TextField(
+          controller:productSearch,
+          textInputAction:TextInputAction.search,
+          decoration:InputDecoration(
+            prefixIcon:const Icon(Icons.search),
+            labelText:tr3('بحث عن صنف بالاسم أو الرمز','Search by product name or code','Rechercher par nom ou code'),
+            suffixIcon:productSearch.text.isEmpty?null:IconButton(
+              tooltip:tr3('مسح البحث','Clear search','Effacer la recherche'),
+              icon:const Icon(Icons.close),
+              onPressed:()=>setLocal((){productSearch.clear();visibleProductRows=List.of(productRows);}),
+            ),
+          ),
+          onChanged:(value){
+            final query=value.trim().toLowerCase();
+            setLocal((){
+              visibleProductRows=query.isEmpty?List.of(productRows):productRows.where((p){
+                final name=(p['name']??'').toString().toLowerCase();
+                final code=(p['code']??'').toString().toLowerCase();
+                return name.contains(query)||code.contains(query);
+              }).toList();
+            });
+          },
+        ),
+        const SizedBox(height:6),
+        SizedBox(
+          height:visibleProductRows.isEmpty?58:320,
+          child:visibleProductRows.isEmpty
+            ? Center(child:Text(productSearch.text.trim().isEmpty?t('empty'):tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
+            : GridView.builder(
+                gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount:4,mainAxisExtent:58,crossAxisSpacing:3,mainAxisSpacing:3),
+                itemCount:visibleProductRows.length,
+                itemBuilder:(context,index){
+                  final p=visibleProductRows[index];
+                  final selected=p['id']==productId;
+                  return Card(
+                    color:selected?Theme.of(ctx).colorScheme.primaryContainer:null,
+                    child:InkWell(
+                      borderRadius:BorderRadius.circular(10),
+                      onTap:() async {
+                        final v=p['id'] as int;
+                        final u=await db.listPurchaseUnits(v);
+                        setLocal(() {
+                          productId=v; units=u;
+                          unitId=u.isEmpty?null:u.first['id'] as int;
+                          quantity.clear(); price.clear(); expirySplits.clear();
+                        });
+                      },
+                      child:Padding(padding:const EdgeInsets.all(3),child:Column(
+                        mainAxisAlignment:MainAxisAlignment.center,
+                        children:[
+                          const Icon(Icons.inventory_2_outlined,size:12),
+                          const SizedBox(height:2),
+                          Text('${p['name']}',maxLines:2,textAlign:TextAlign.center,
+                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:8,fontWeight:FontWeight.w600,height:1.0)),
+                          Text('${p['base_unit_name']}',maxLines:1,overflow:TextOverflow.ellipsis,
+                            style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:7)),
+                        ]))),
+                  );
+                })),
+        Align(
+          alignment:AlignmentDirectional.centerStart,
+          child:TextButton.icon(
+            onPressed:() async {
+              final previousIds=productRows.map((p)=>p['id']).toSet();
+              await addProduct();
+              final refreshed=await db.listProducts();
+              final newlyCreated=refreshed.where((p)=>!previousIds.contains(p['id'])).toList();
+              if(newlyCreated.isEmpty)return;
+              newlyCreated.sort((a,b)=>(a['id'] as int).compareTo(b['id'] as int));
+              final createdProduct=newlyCreated.last;
+              final v=createdProduct['id'] as int;
+              final u=await db.listPurchaseUnits(v);
+              setLocal(() {
+                productRows=refreshed;
+                final query=productSearch.text.trim().toLowerCase();
+                visibleProductRows=query.isEmpty?List.of(refreshed):refreshed.where((p){
+                  final name=(p['name']??'').toString().toLowerCase();
+                  final code=(p['code']??'').toString().toLowerCase();
+                  return name.contains(query)||code.contains(query);
+                }).toList();
+                productId=v; units=u;
+                unitId=u.isEmpty?null:u.first['id'] as int;
+              });
+            },
+            icon:const Icon(Icons.add_circle_outline),
+            label:Text(tr3('تعريف صنف جديد','Define new product','Définir un nouveau produit')))),
+        if(productId!=null) ...[
+          const SizedBox(height:6),
+          DropdownButtonFormField<int>(
+            value:units.any((u)=>u['id']==unitId)?unitId:null,
+            decoration:InputDecoration(labelText:t('unit')),
+            items:units.map((u)=>DropdownMenuItem(value:u['id'] as int,
+              child:Text('${u['unit_name']}  (×${u['factor_to_base']})'))).toList(),
+            onChanged:(v) { setLocal(() { unitId=v; expirySplits.clear(); }); }),
+        ],
         const SizedBox(height:10),
         TextField(controller:quantity,readOnly:true,showCursor:true,decoration:InputDecoration(labelText:t('quantity'),hintText:'0')),
         const SizedBox(height:8),
