@@ -296,8 +296,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     });
   }
 
-  /// Public competitor list only. Confidential records are deliberately omitted
-  /// until authenticated permission enforcement is wired into the application.
+  /// Confidential competitors are returned only after the explicit per-user permission check.
   Future<List<Map<String, Object?>>> listCompetitorsForUser({required int userId}) async {
     await _requireMarketPermission(userId, 'market.analytics.view');
     final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
