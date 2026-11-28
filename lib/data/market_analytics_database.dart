@@ -134,7 +134,7 @@ extension WmsMarketAnalytics on WmsDatabase {
       ORDER BY net_sales_minor DESC,p.name COLLATE NOCASE
     """, [
       start,end, start,end, start,end, start,end,
-      start,end, start,end, start,end,
+      start,end, start,end, start,end, start,end,
     ]);
   }
 
