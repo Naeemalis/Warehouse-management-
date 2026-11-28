@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import 'wms_database.dart';
 
@@ -205,11 +207,80 @@ extension WmsAccessControl on WmsDatabase {
     if (changed != 1) throw StateError('User not found');
   }
 
+  String _hashLoginPassword(String salt, String password) =>
+      sha256.convert(utf8.encode('$salt:$password')).toString();
+
+  Future<Map<String, Object?>?> authenticateUser({
+    required String username,
+    required String password,
+  }) async {
+    final login = username.trim();
+    if (login.isEmpty || password.isEmpty) return null;
+    final db = await database;
+    final rows = await db.query('users',
+      where: 'username=? AND is_active=1',
+      whereArgs: [login], limit: 1);
+    if (rows.isEmpty) return null;
+    final user = rows.first;
+    final salt = user['password_salt'] as String? ?? '';
+    final expected = user['password_hash'] as String? ?? '';
+    final actual = _hashLoginPassword(salt, password);
+    if (expected.isEmpty || actual != expected) return null;
+    final now = DateTime.now().toIso8601String();
+    await db.insert('user_sessions', {
+      'id': 1, 'user_id': user['id'],
+      'password_hash_snapshot': expected,
+      'created_at': now, 'last_seen_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    return {
+      'id': user['id'], 'username': user['username'],
+      'full_name': user['full_name'], 'role_id': user['role_id'],
+      'department_id': user['department_id'],
+    };
+  }
+
+  Future<Map<String, Object?>?> restoreUserSession() async {
+    final db = await database;
+    final rows = await db.rawQuery("""
+      SELECT u.id,u.username,u.full_name,u.role_id,u.department_id,
+        u.password_hash,s.created_at
+      FROM user_sessions s
+      JOIN users u ON u.id=s.user_id
+      WHERE s.id=1 AND u.is_active=1
+        AND s.password_hash_snapshot=u.password_hash
+      LIMIT 1
+    """);
+    if (rows.isEmpty) {
+      await db.delete('user_sessions', where: 'id=1');
+      return null;
+    }
+    await db.update('user_sessions',
+      {'last_seen_at': DateTime.now().toIso8601String()},
+      where: 'id=1');
+    final user = Map<String,Object?>.from(rows.first);
+    user.remove('password_hash');
+    return user;
+  }
+
+  Future<void> logoutUser() async {
+    final db = await database;
+    await db.delete('user_sessions', where: 'id=1');
+  }
+
+  Future<bool> hasAnyUsers() async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT COUNT(*) AS total FROM users');
+    return (rows.first['total'] as int? ?? 0) > 0;
+  }
+
   Future<void> setUserActive(int id, bool active) async {
     final db = await database;
     await db.update('users', {
       'is_active': active ? 1 : 0,
       'updated_at': DateTime.now().toIso8601String(),
     }, where: 'id=?', whereArgs: [id]);
+    if (!active) {
+      await db.delete('user_sessions', where: 'user_id=?', whereArgs: [id]);
+    }
   }
 }
