@@ -695,6 +695,36 @@ extension WmsMarketAnalytics on WmsDatabase {
     return rows.first['id'] as int;
   }
 
+  Future<List<Map<String, Object?>>> listCompetitors({required int userId}) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
+    final db = await database;
+    return db.rawQuery("""
+      SELECT c.*,
+        (SELECT COUNT(*) FROM competitor_branches b
+          WHERE b.competitor_id=c.id AND b.is_active=1) AS branch_count,
+        (SELECT COUNT(*) FROM competitor_products cp
+          WHERE cp.competitor_id=c.id AND cp.is_active=1
+            AND (cp.is_confidential=0 OR ?=1)) AS product_count
+      FROM competitors c
+      WHERE c.is_active=1 AND (c.is_confidential=0 OR ?=1)
+      ORDER BY c.name COLLATE NOCASE
+    """, [canViewConfidential ? 1 : 0, canViewConfidential ? 1 : 0]);
+  }
+
+  Future<List<Map<String, Object?>>> listUnfulfilledDemand({required int userId}) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
+    final db = await database;
+    return db.rawQuery("""
+      SELECT u.*,a.name AS area_name,c.name AS competitor_name
+      FROM unfulfilled_demand u
+      LEFT JOIN market_areas a ON a.id=u.area_id
+      LEFT JOIN competitors c ON c.id=u.competitor_id
+      ORDER BY u.request_date DESC,u.id DESC
+      LIMIT 300
+    """);
+  }
+
   Future<List<Map<String, Object?>>> listMarketDemandObservations({
     required int userId,
     int? productId,
