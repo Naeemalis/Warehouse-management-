@@ -516,4 +516,212 @@ extension WmsMarketAnalytics on WmsDatabase {
     },where:'id=?',whereArgs:[opportunityId]);
     return id;
   }
+
+  Future<int> saveCompetitorBranch({
+    required int userId,
+    required int competitorId,
+    int? areaId,
+    String? branchName,
+    String? address,
+  }) async {
+    await _requireMarketPermission(userId, 'market.competitors.manage');
+    final db = await database;
+    final competitor = await db.query('competitors',
+      where:'id=? AND is_active=1 AND is_confidential=0',
+      whereArgs:[competitorId],limit:1);
+    if (competitor.isEmpty) throw StateError('Competitor is not available in the public market workspace');
+    return db.insert('competitor_branches', {
+      'competitor_id':competitorId,'area_id':areaId,
+      'branch_name':branchName?.trim(),'address':address?.trim(),
+      'created_at':DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<int> recordCompetitorAvailability({
+    required int userId,
+    required int competitorProductId,
+    int? branchId,
+    int? dataSourceId,
+    required String availabilityStatus,
+    required String observedAt,
+    int? confidenceScore,
+    String? notes,
+  }) async {
+    const statuses = {'available','low_stock','out_of_stock','unknown'};
+    if (!statuses.contains(availabilityStatus)) throw ArgumentError('Invalid availability status');
+    final observed = DateTime.tryParse(observedAt);
+    if (observed == null) throw ArgumentError('observedAt must be a valid ISO date/time');
+    if (confidenceScore != null && (confidenceScore < 0 || confidenceScore > 100)) {
+      throw ArgumentError('Confidence score must be between 0 and 100');
+    }
+    await _requireMarketPermission(userId, 'market.competitors.manage');
+    final db = await database;
+    final product = await db.rawQuery("""
+      SELECT cp.id FROM competitor_products cp
+      JOIN competitors c ON c.id=cp.competitor_id
+      WHERE cp.id=? AND cp.is_confidential=0 AND c.is_confidential=0
+        AND cp.is_active=1 AND c.is_active=1
+    """,[competitorProductId]);
+    if (product.isEmpty) throw StateError('Competitor product is not available in the public market workspace');
+    return db.insert('competitor_availability_observations', {
+      'competitor_product_id':competitorProductId,'branch_id':branchId,
+      'data_source_id':dataSourceId,'availability_status':availabilityStatus,
+      'observed_at':observed.toIso8601String(),'confidence_score':confidenceScore,
+      'notes':notes?.trim(),'created_at':DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<int> saveMarketDemandObservation({
+    required int userId,
+    int? productId,
+    required String productName,
+    required int areaId,
+    int? segmentId,
+    int? dataSourceId,
+    required String observationType,
+    required String periodStart,
+    required String periodEnd,
+    required double demandQuantityBase,
+    required String baseUnitName,
+    int? estimatedSalesValueMinor,
+    String? currencyCode,
+    int? confidenceScore,
+    String? notes,
+  }) async {
+    const types = {'observed','surveyed','estimated'};
+    final start = _marketDate(periodStart,'periodStart');
+    final end = _marketDate(periodEnd,'periodEnd');
+    if (!types.contains(observationType) || end.compareTo(start) < 0 ||
+        productName.trim().isEmpty || baseUnitName.trim().isEmpty ||
+        !demandQuantityBase.isFinite || demandQuantityBase < 0) {
+      throw ArgumentError('Market demand observation is invalid');
+    }
+    if (estimatedSalesValueMinor != null && estimatedSalesValueMinor < 0) {
+      throw ArgumentError('Estimated market value must be non-negative');
+    }
+    if (confidenceScore != null && (confidenceScore < 0 || confidenceScore > 100)) {
+      throw ArgumentError('Confidence score must be between 0 and 100');
+    }
+    await _requireMarketPermission(userId, 'market.demand.manage');
+    final db = await database;
+    if (productId != null) {
+      final products = await db.query('products',
+        columns:['name','base_unit_name'],where:'id=?',whereArgs:[productId],limit:1);
+      if (products.isEmpty) throw StateError('Product not found');
+      if (products.first['base_unit_name'] != baseUnitName.trim()) {
+        throw ArgumentError('Demand quantity must use the product base unit');
+      }
+    }
+    return db.insert('market_demand_observations', {
+      'product_id':productId,'product_name_snapshot':productName.trim(),
+      'area_id':areaId,'segment_id':segmentId,'data_source_id':dataSourceId,
+      'observation_type':observationType,'period_start':start,'period_end':end,
+      'demand_quantity_base':demandQuantityBase,
+      'base_unit_name_snapshot':baseUnitName.trim(),
+      'estimated_sales_value_minor':estimatedSalesValueMinor,
+      'currency_code':currencyCode?.trim().toUpperCase(),
+      'confidence_score':confidenceScore,'notes':notes?.trim(),
+      'created_at':DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<int> saveProductMarketProfile({
+    required int userId,
+    required int productId,
+    String? brand,
+    String? manufacturer,
+    String? countryOfOrigin,
+    String? customsCode,
+    String? storageRequirements,
+  }) async {
+    await _requireMarketPermission(userId, 'market.demand.manage');
+    final db = await database;
+    final products = await db.query('products',columns:['id'],
+      where:'id=?',whereArgs:[productId],limit:1);
+    if (products.isEmpty) throw StateError('Product not found');
+    await db.insert('product_market_profiles', {
+      'product_id':productId,'brand':brand?.trim(),
+      'manufacturer':manufacturer?.trim(),'country_of_origin':countryOfOrigin?.trim(),
+      'customs_code':customsCode?.trim(),'storage_requirements':storageRequirements?.trim(),
+      'updated_at':DateTime.now().toIso8601String(),
+    },conflictAlgorithm:ConflictAlgorithm.replace);
+    return productId;
+  }
+
+  Future<int> saveSupplierProductTerms({
+    required int userId,
+    required int supplierId,
+    required int productId,
+    int? leadTimeDays,
+    double? minimumOrderQuantityBase,
+    int? quotedUnitCostMinor,
+    String? currencyCode,
+    String? quoteValidUntil,
+    String? notes,
+  }) async {
+    if (leadTimeDays != null && leadTimeDays < 0) throw ArgumentError('Lead time cannot be negative');
+    if (minimumOrderQuantityBase != null &&
+        (!minimumOrderQuantityBase.isFinite || minimumOrderQuantityBase <= 0)) {
+      throw ArgumentError('Minimum order quantity must be positive');
+    }
+    if (quotedUnitCostMinor != null && quotedUnitCostMinor < 0) {
+      throw ArgumentError('Quoted cost cannot be negative');
+    }
+    await _requireMarketPermission(userId, 'market.demand.manage');
+    final db = await database;
+    final now = DateTime.now().toIso8601String();
+    await db.insert('supplier_product_terms', {
+      'supplier_id':supplierId,'product_id':productId,
+      'lead_time_days':leadTimeDays,
+      'minimum_order_quantity_base':minimumOrderQuantityBase,
+      'quoted_unit_cost_minor':quotedUnitCostMinor,
+      'currency_code':currencyCode?.trim().toUpperCase(),
+      'quote_valid_until':quoteValidUntil == null ? null : _marketDate(quoteValidUntil,'quoteValidUntil'),
+      'notes':notes?.trim(),'updated_at':now,
+    },conflictAlgorithm:ConflictAlgorithm.replace);
+    final rows = await db.query('supplier_product_terms',
+      columns:['id'],where:'supplier_id=? AND product_id=?',
+      whereArgs:[supplierId,productId],limit:1);
+    return rows.first['id'] as int;
+  }
+
+  Future<List<Map<String, Object?>>> listMarketDemandObservations({
+    required int userId,
+    int? productId,
+    int? areaId,
+  }) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
+    final db = await database;
+    final filters = <String>[];
+    final args = <Object?>[];
+    if (productId != null) { filters.add('m.product_id=?'); args.add(productId); }
+    if (areaId != null) { filters.add('m.area_id=?'); args.add(areaId); }
+    return db.rawQuery("""
+      SELECT m.*,a.name AS area_name,s.name AS segment_name,src.source_name
+      FROM market_demand_observations m
+      JOIN market_areas a ON a.id=m.area_id
+      LEFT JOIN market_segments s ON s.id=m.segment_id
+      LEFT JOIN market_data_sources src ON src.id=m.data_source_id
+      ${filters.isEmpty ? '' : 'WHERE ${filters.join(' AND ')}'}
+      ORDER BY m.period_start DESC,m.created_at DESC
+    """,args);
+  }
+
+  Future<List<Map<String, Object?>>> listGrowthOpportunities({
+    required int userId,
+    String? status,
+  }) async {
+    await _requireMarketPermission(userId, 'market.analytics.view');
+    final db = await database;
+    return db.rawQuery("""
+      SELECT g.*,p.name AS product_name,a.name AS area_name
+      FROM growth_opportunities g
+      LEFT JOIN products p ON p.id=g.product_id
+      LEFT JOIN market_areas a ON a.id=g.area_id
+      ${status == null ? '' : 'WHERE g.status=?'}
+      ORDER BY CASE g.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+        g.created_at DESC
+    """,status == null ? [] : [status]);
+  }
+
 }
