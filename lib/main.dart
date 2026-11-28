@@ -571,7 +571,7 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
             ? Center(child:Text(productSearch.text.trim().isEmpty?t('empty'):tr3('لا توجد أصناف مطابقة للبحث','No matching products','Aucun produit correspondant')))
             : GridView.builder(
                 gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount:3,mainAxisExtent:82,crossAxisSpacing:6,mainAxisSpacing:6),
+                  crossAxisCount:4,mainAxisExtent:64,crossAxisSpacing:4,mainAxisSpacing:4),
                 itemCount:visibleProductRows.length,
                 itemBuilder:(context,index){
                   final p=visibleProductRows[index];
@@ -589,14 +589,15 @@ FilledButton.tonalIcon(onPressed: addProduct, icon: const Icon(Icons.add), label
                           quantity.clear(); price.clear(); expirySplits.clear();
                         });
                       },
-                      child:Padding(padding:const EdgeInsets.all(7),child:Column(
+                      child:Padding(padding:const EdgeInsets.all(3),child:Column(
                         mainAxisAlignment:MainAxisAlignment.center,
                         children:[
-                          const Icon(Icons.inventory_2_outlined,size:22),
-                          const SizedBox(height:5),
+                          const Icon(Icons.inventory_2_outlined,size:15),
+                          const SizedBox(height:2),
                           Text('${p['name']}',maxLines:2,textAlign:TextAlign.center,
-                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:11,fontWeight:FontWeight.w600)),
-                          Text('${p['base_unit_name']}',style:Theme.of(ctx).textTheme.labelSmall),
+                            overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:9,fontWeight:FontWeight.w600,height:1.05)),
+                          Text('${p['base_unit_name']}',maxLines:1,overflow:TextOverflow.ellipsis,
+                            style:Theme.of(ctx).textTheme.labelSmall?.copyWith(fontSize:8)),
                         ]))),
                   );
                 })),
