@@ -61,6 +61,36 @@ The companion SQL migration file defines these tables:
 
 Do not store calculated market share as an independently editable fact. Calculate it from approved internal sales and a dated market-size estimate; an optional future cache must be rebuildable.
 
+## Relationship overview
+
+```mermaid
+erDiagram
+  PRODUCTS ||--o| PRODUCT_MARKET_PROFILES : describes
+  PRODUCTS ||--o{ SUPPLIER_PRODUCT_TERMS : sourced_by
+  SUPPLIERS ||--o{ SUPPLIER_PRODUCT_TERMS : quotes
+  COMPETITORS ||--o{ COMPETITOR_BRANCHES : operates
+  MARKET_AREAS ||--o{ COMPETITOR_BRANCHES : locates
+  COMPETITORS ||--o{ COMPETITOR_PRODUCTS : offers
+  PRODUCTS o|--o{ COMPETITOR_PRODUCTS : matches
+  COMPETITOR_PRODUCTS ||--o{ COMPETITOR_PRICE_OBSERVATIONS : priced_by
+  COMPETITOR_PRODUCTS ||--o{ COMPETITOR_AVAILABILITY_OBSERVATIONS : availability
+  MARKET_DATA_SOURCES o|--o{ COMPETITOR_PRICE_OBSERVATIONS : supports
+  MARKET_DATA_SOURCES o|--o{ COMPETITOR_AVAILABILITY_OBSERVATIONS : supports
+  PRODUCTS o|--o{ MARKET_DEMAND_OBSERVATIONS : demanded
+  MARKET_AREAS ||--o{ MARKET_DEMAND_OBSERVATIONS : located
+  MARKET_SEGMENTS o|--o{ MARKET_DEMAND_OBSERVATIONS : segmented
+  MARKET_DATA_SOURCES o|--o{ MARKET_DEMAND_OBSERVATIONS : supports
+  PRODUCTS ||--o{ MARKET_SIZE_ESTIMATES : measured
+  MARKET_AREAS ||--o{ MARKET_SIZE_ESTIMATES : measured_in
+  MARKET_DATA_SOURCES o|--o{ MARKET_SIZE_ESTIMATES : supports
+  PRODUCTS o|--o{ UNFULFILLED_DEMAND : requested
+  MARKET_AREAS o|--o{ UNFULFILLED_DEMAND : occurs_in
+  COMPETITORS o|--o{ UNFULFILLED_DEMAND : alternative
+  PRODUCTS o|--o{ GROWTH_OPPORTUNITIES : opportunity_for
+  MARKET_AREAS o|--o{ GROWTH_OPPORTUNITIES : opportunity_in
+  GROWTH_OPPORTUNITIES ||--o{ MARKET_DECISIONS : decided_by
+```
+
 ## Metric definitions
 
 All quantity comparisons must first normalize to the internal product's base unit. Comparisons must use the same product, geographic area, and time period.
