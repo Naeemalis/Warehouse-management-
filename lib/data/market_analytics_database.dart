@@ -279,17 +279,19 @@ extension WmsMarketAnalytics on WmsDatabase {
     String? phone,
     String? website,
     String? notes,
+    bool isConfidential = false,
   }) async {
     const types = {'direct','indirect','online','wholesale','retail','other'};
     if (name.trim().isEmpty || !types.contains(competitorType)) {
       throw ArgumentError('Competitor name and type are required');
     }
     await _requireMarketPermission(userId, 'market.competitors.manage');
+    if (isConfidential) await _requireMarketPermission(userId, 'competitor_confidential_view');
     final db = await database;
     return db.insert('competitors', {
       'name':name.trim(),'competitor_type':competitorType,
       'phone':phone?.trim(),'website':website?.trim(),'notes':notes?.trim(),
-      'is_confidential':0,'created_at':DateTime.now().toIso8601String(),
+      'is_confidential':isConfidential ? 1 : 0,'created_at':DateTime.now().toIso8601String(),
       'updated_at':DateTime.now().toIso8601String(),
     });
   }
@@ -311,6 +313,7 @@ extension WmsMarketAnalytics on WmsDatabase {
     required int competitorId,
     int? internalProductId,
     required String externalProductName,
+    bool isConfidential = false,
     String? brand,
     String? manufacturer,
     String? countryOfOrigin,
@@ -323,15 +326,17 @@ extension WmsMarketAnalytics on WmsDatabase {
       throw ArgumentError('A product name and valid optional unit conversion are required');
     }
     await _requireMarketPermission(userId, 'market.competitors.manage');
+    if (isConfidential) await _requireMarketPermission(userId, 'competitor_confidential_view');
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
     final db = await database;
-    final competitor = await db.query('competitors',where:'id=? AND is_active=1 AND is_confidential=0',whereArgs:[competitorId],limit:1);
+    final competitor = await db.query('competitors',where:'id=? AND is_active=1 AND (is_confidential=0 OR ?=1)',whereArgs:[competitorId,canViewConfidential ? 1 : 0],limit:1);
     if (competitor.isEmpty) throw StateError('Competitor is not available in the public market workspace');
     return db.insert('competitor_products', {
       'competitor_id':competitorId,'internal_product_id':internalProductId,
       'external_product_name':externalProductName.trim(),'brand':brand?.trim(),
       'manufacturer':manufacturer?.trim(),'country_of_origin':countryOfOrigin?.trim(),
       'package_description':packageDescription?.trim(),'observed_unit_name':observedUnitName?.trim(),
-      'quantity_in_internal_base':quantityInInternalBase,'is_confidential':0,
+      'quantity_in_internal_base':quantityInInternalBase,'is_confidential':isConfidential ? 1 : 0,
       'created_at':DateTime.now().toIso8601String(),
     });
   }
@@ -361,12 +366,14 @@ extension WmsMarketAnalytics on WmsDatabase {
     if (observed == null) throw ArgumentError('observedAt must be a valid ISO date/time');
     await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
     final product = await db.rawQuery("""
       SELECT cp.id FROM competitor_products cp
       JOIN competitors c ON c.id=cp.competitor_id
-      WHERE cp.id=? AND cp.is_confidential=0 AND c.is_confidential=0
+      WHERE cp.id=? AND (cp.is_confidential=0 OR ?=1)
+        AND (c.is_confidential=0 OR ?=1)
         AND cp.is_active=1 AND c.is_active=1
-    """,[competitorProductId]);
+    """,[competitorProductId,canViewConfidential ? 1 : 0,canViewConfidential ? 1 : 0]);
     if (product.isEmpty) throw StateError('Competitor product is not available in the public market workspace');
     return db.insert('competitor_price_observations', {
       'competitor_product_id':competitorProductId,'branch_id':branchId,
@@ -527,9 +534,10 @@ extension WmsMarketAnalytics on WmsDatabase {
   }) async {
     await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
     final competitor = await db.query('competitors',
-      where:'id=? AND is_active=1 AND is_confidential=0',
-      whereArgs:[competitorId],limit:1);
+      where:'id=? AND is_active=1 AND (is_confidential=0 OR ?=1)',
+      whereArgs:[competitorId,canViewConfidential ? 1 : 0],limit:1);
     if (competitor.isEmpty) throw StateError('Competitor is not available in the public market workspace');
     return db.insert('competitor_branches', {
       'competitor_id':competitorId,'area_id':areaId,
@@ -557,12 +565,14 @@ extension WmsMarketAnalytics on WmsDatabase {
     }
     await _requireMarketPermission(userId, 'market.competitors.manage');
     final db = await database;
+    final canViewConfidential = await userHasPermission(userId, 'competitor_confidential_view');
     final product = await db.rawQuery("""
       SELECT cp.id FROM competitor_products cp
       JOIN competitors c ON c.id=cp.competitor_id
-      WHERE cp.id=? AND cp.is_confidential=0 AND c.is_confidential=0
+      WHERE cp.id=? AND (cp.is_confidential=0 OR ?=1)
+        AND (c.is_confidential=0 OR ?=1)
         AND cp.is_active=1 AND c.is_active=1
-    """,[competitorProductId]);
+    """,[competitorProductId,canViewConfidential ? 1 : 0,canViewConfidential ? 1 : 0]);
     if (product.isEmpty) throw StateError('Competitor product is not available in the public market workspace');
     return db.insert('competitor_availability_observations', {
       'competitor_product_id':competitorProductId,'branch_id':branchId,
