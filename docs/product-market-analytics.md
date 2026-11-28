@@ -97,6 +97,14 @@ All quantity comparisons must first normalize to the internal product's base uni
 6. Add unit tests for return-aware sales, stock/issue separation, unit normalization, market share, coverage, price comparisons and permission denial.
 7. Run Flutter analyze/tests and Android release build; inspect the generated APK and test on a physical Android device.
 
-## Current boundary
+## Current implementation status
 
-This document and SQL file establish the first design/migration artifact. They do not claim that the migration, UI, authentication enforcement, or APK feature is already integrated. Integration must be implemented and tested in subsequent commits on `feature/product-market-analytics`.
+Implemented on `feature/product-market-analytics`:
+
+- Version 11 SQLite migration creates the market intelligence tables on new installs and upgrades existing version 10 databases.
+- Repository methods capture competitor catalog/price/availability, demand observations, unmet requests, market-size estimates, supplier lead-time/MOQ terms, product origin/manufacturer metadata, opportunities and decisions.
+- Product performance queries reuse approved WMS documents and distinguish sales from standard issues; customer returns linked to original sales reduce net sales.
+- Market analytics repository methods require explicit `market.analytics.view`, `market.demand.manage`, `market.competitors.manage`, or `market.decisions.manage` permissions. Confidential competitor records additionally require the existing `competitor_confidential_view` permission.
+- Pure metric functions and unit tests cover market share, demand coverage, comparable price index, stock cover, reorder point and gross margin.
+
+Still outstanding: the interactive Arabic/English/French screens, a real authenticated session wired to the permission checks, competitor branch/product capture UI, full automated SQLite migration/integration tests, and Android CI/device verification. The current app's demo actor is not an authenticated user, so the market screen must not be exposed until session identity is wired into these checks. No APK or production readiness is claimed at this stage.
