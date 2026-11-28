@@ -13,7 +13,7 @@ class WmsDatabase {
     final root = await getDatabasesPath();
     _database = await openDatabase(
       p.join(root, 'naeemsoft_wms.db'),
-      version: 11,
+      version: 12,
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -102,6 +102,9 @@ class WmsDatabase {
         }
         if (oldVersion < 11) {
           await createMarketAnalyticsSchema(db);
+        }
+        if (oldVersion < 12) {
+          await _createUserSessionSchema(db);
         }
         if (oldVersion == 8) {
           await db.execute("ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''");
@@ -255,6 +258,17 @@ class WmsDatabase {
     await db.insert('app_settings', {'setting_key': 'language', 'setting_value': 'ar'});
     await _createExpiryTraceabilitySchema(db);
     await createMarketAnalyticsSchema(db);
+    await _createUserSessionSchema(db);
+  }
+
+  Future<void> _createUserSessionSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE IF NOT EXISTS user_sessions (
+      id INTEGER PRIMARY KEY CHECK(id=1),
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      password_hash_snapshot TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL
+    )''');
   }
 
   Future<void> _createAccessControlSchema(DatabaseExecutor db) async {
