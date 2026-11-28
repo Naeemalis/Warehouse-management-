@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import 'access_control.dart';
 import 'wms_database.dart';
 
