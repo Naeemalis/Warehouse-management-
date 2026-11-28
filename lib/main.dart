@@ -10,6 +10,7 @@ import 'package:srag_printer/srag_printer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
 import 'data/wms_database.dart';
+import 'auth_gate.dart';
 import 'access_admin_screen.dart';
 import 'data/master_data_import.dart';
 import 'data/master_data_transfer.dart';
@@ -49,17 +50,25 @@ class _NaeemWmsAppState extends State<NaeemWmsApp> {
         isDense: true,
       ),
     ),
-    home: WarehouseHome(
+    home: AuthGate(
       language: locale.languageCode,
       onLanguage: (v) => setState(() => locale = Locale(v)),
+      homeBuilder: (user, onLogout) => WarehouseHome(
+        language: locale.languageCode,
+        onLanguage: (v) => setState(() => locale = Locale(v)),
+        currentUser: user,
+        onLogout: onLogout,
+      ),
     ),
   );
 }
 
 class WarehouseHome extends StatefulWidget {
-  const WarehouseHome({super.key, required this.language, required this.onLanguage});
+  const WarehouseHome({super.key, required this.language, required this.onLanguage, required this.currentUser, required this.onLogout});
   final String language;
   final ValueChanged<String> onLanguage;
+  final Map<String,Object?> currentUser;
+  final VoidCallback onLogout;
   @override
   State<WarehouseHome> createState() => _WarehouseHomeState();
 }
@@ -189,6 +198,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               else if(v=='approvals') showApprovals();
               else if(v=='admin') showAccessAdmin();
               else if(v=='company') showCompanyProfile();
+              else if(v=='logout') widget.onLogout();
               else if(v=='ar'||v=='en'||v=='fr') widget.onLanguage(v);
             },
             itemBuilder: (_) => [
@@ -203,6 +213,7 @@ class _WarehouseHomeState extends State<WarehouseHome> {
               PopupMenuItem(value:'approvals',child:Text(t('approvals'))),
               PopupMenuItem(value:'admin',child:Text(tr3('المستخدمون والأقسام والصلاحيات','Users, Departments & Permissions','Utilisateurs, services et autorisations'))),
               PopupMenuItem(value:'company',child:Text(tr3('بيانات المؤسسة','Organization profile','Profil de l’organisation'))),
+              PopupMenuItem(value:'logout',child:Text(tr3('تسجيل الخروج','Sign out','Déconnexion'))),
               const PopupMenuDivider(),
               const PopupMenuItem(value:'ar',child:Text('العربية')),
               const PopupMenuItem(value:'en',child:Text('English')),
