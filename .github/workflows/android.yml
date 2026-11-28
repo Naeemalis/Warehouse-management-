@@ -3,7 +3,7 @@ name: Flutter Android CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier, feature/multilingual-reports-printing, feature/return-documents, feature/master-data-import-export, feature/sales-cashier, feature/supply-cashier-gallery]
+    branches: [main, feature/wms-foundation, feature/dynamic-issue-cashier, feature/multilingual-reports-printing, feature/return-documents, feature/master-data-import-export, feature/sales-cashier, feature/supply-cashier-gallery, feature/product-market-analytics]
   pull_request:
     branches: [main, feature/wms-foundation, feature/return-documents, feature/master-data-import-export, feature/users-departments-permissions]
 
